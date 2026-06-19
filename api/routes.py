@@ -15,9 +15,7 @@ router = APIRouter()
 _sessions: dict[str, LeadState] = {}
 
 GREETING_TEMPLATE = (
-    "Hi, am I speaking with {name}? This is Ava from Gradious. "
-    "We received your registration for our training programs. "
-    "Are you currently a student or have you already graduated?"
+    "Hi, am I speaking with {name}?"
 )
 
 
@@ -32,7 +30,7 @@ def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) 
         messages=[AIMessage(content=greeting)],
         last_agent_response=greeting,
         next_node="",
-        current_question_key="student_status",
+        current_question_key="confirm_identity",
         answered_fields={},
         human_agent_requested=False,
         course_interest=None,

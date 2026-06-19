@@ -139,6 +139,12 @@ def _store_answer(state: LeadState, key: str, value: str):
         state["callback_requested"] = value.lower() in ("yes", "true", "yeah", "yep")
 
 
+def _is_affirmative(text: str) -> bool:
+    normalized = text.strip().lower()
+    affirmatives = {"yes", "yeah", "yep", "sure", "correct", "that is right", "right"}
+    return any(norm in normalized for norm in affirmatives)
+
+
 def questionnaire_node(state: LeadState) -> LeadState:
     intent = state.get("next_node", "answer")
     user_text = state["messages"][-1].content if state["messages"] else ""
@@ -147,6 +153,23 @@ def questionnaire_node(state: LeadState) -> LeadState:
 
     logger.info(f"[Questionnaire] Processing intent '{intent}' for lead {state['lead_id']}, question key: {current_q_key}")
     logger.debug(f"User text: {user_text}")
+
+    if current_q_key == "confirm_identity":
+        if _is_affirmative(user_text):
+            response = (
+                "This is Ava from Gradious. We received your registration for our training programs. "
+                "Are you currently a student or have you already graduated?"
+            )
+            state["current_question_key"] = "student_status"
+        else:
+            response = (
+                "Sorry, I may have the wrong person. "
+                "If you're {name}, please confirm so I can continue.".format(name=state.get("lead_name"))
+            )
+            # Keep current_question_key as confirm_identity until we get a clear yes.
+        state["last_agent_response"] = response
+        state["messages"].append(AIMessage(content=response))
+        return state
 
     # ── Human agent short-circuit ──────────────────────────────────────
     if state.get("human_agent_requested") or intent == "human_agent":

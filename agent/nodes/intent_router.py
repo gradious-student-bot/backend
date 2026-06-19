@@ -30,12 +30,18 @@ def intent_router_node(state: LeadState) -> LeadState:
     logger.info(f"[Intent Router] Processing message for lead {state['lead_id']}")
     logger.debug(f"User message: {user_message}")
 
-    response = llm.invoke([
-        {"role": "system", "content": INTENT_SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ])
-    intent = response.content.strip().lower()
-    logger.debug(f"Initial intent classification: {intent}")
+    # If the user is confirming identity, treat any reply as an answer so the
+    # flow stays in questionnaire mode and does not jump to FAQ accidentally.
+    if state.get("current_question_key") == "confirm_identity":
+        logger.debug("Confirm identity phase: forcing intent to 'answer'")
+        intent = "answer"
+    else:
+        response = llm.invoke([
+            {"role": "system", "content": INTENT_SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ])
+        intent = response.content.strip().lower()
+        logger.debug(f"Initial intent classification: {intent}")
 
     # Fallback safety
     valid_intents = {
