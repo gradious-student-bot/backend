@@ -1,273 +1,499 @@
+import json
 import logging
-from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
+from datetime import date
+from openai import OpenAI
 from agent.state import LeadState
-from agent.prompts.questionnaire_prompt import (
-    QUESTIONNAIRE_SYSTEM_PROMPT,
-    DE_ESCALATE_RESPONSE,
-    IRRELEVANT_RESPONSE,
-    CONFUSED_SYSTEM_PROMPT,
-)
 
 logger = logging.getLogger(__name__)
+client = OpenAI()
 
-llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+# ─────────────────────────────────────────────────────────────────────────────
+# Field schema sent to LLM so it knows what to extract and what's pending
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Ordered question flow
-QUESTION_FLOW = [
-    "course_interest",
-    "student_status",
-    "education_details",   # branches: current_year+passout_year+dept (student) or passout_year+dept (graduated)
-    "training_mode",
-    "class_type",          # only if training_mode == "online"
-    "budget_range",
-    "referral_source",
-    "interested",
-    "join_date",           # only if interested == True
-    "callback_requested",
-    "callback_time",       # only if callback_requested == True
-]
-
-QUESTION_PROMPTS = {
-    "course_interest": "Which course are you interested in — Full Stack Development, AI & Machine Learning, or DSA?",
-    "student_status": "Are you currently a student or have you already graduated?",
-    "current_year": "Which year are you in currently?",
-    "passout_year": "Which year did you graduate or are you passing out?",
-    "department": "What is your branch or department?",
-    "training_mode": "Are you looking for online training or classroom training?",
-    "class_type": "Would you prefer self-paced learning or live classes?",
-    "budget_range": "What budget range are you looking at for the course?",
-    "referral_source": "How did you hear about Gradious — social media, a friend, or somewhere else?",
-    "interested": "Are you interested in joining one of our programs?",
-    "join_date": "When are you planning to start?",
-    "callback_requested": "Would you like a callback from our admissions team for more details?",
-    "callback_time": "What time works best for the callback?",
+ALL_FIELDS = {
+    "course_interest":   "Course the student wants — one of: fullstack_batch, ai_batch, dsa_batch",
+    "student_status":    "Whether student is currently studying or already graduated — values: student | graduated",
+    "current_year":      "Current academic year if student (e.g. 2nd year, 3rd year) — only for student status",
+    "passout_year":      "Year of graduation or expected passout (e.g. 2026, 2027)",
+    "department":        "Branch or department (e.g. CSE, ECE, IT, Mechanical)",
+    "training_mode":     "Preferred training mode — values: online | offline",
+    "class_type":        "If online: self_paced or live — only relevant when training_mode is online",
+    "budget_range":      "Budget the student can spend on the course (e.g. 15000-20000, around 20k)",
+    "referral_source":   "How the student heard about Gradious (e.g. Instagram, friend, YouTube)",
+    "interested":        "Whether the student is interested in joining — values: yes | no",
+    "join_date":         "When the student plans to start — only if interested is yes",
+    "callback_requested":"Whether student wants a callback from admissions team — values: yes | no",
+    "callback_time":     "Preferred time for the callback — only if callback_requested is yes",
 }
 
-COURSE_KEY_MAP = {
-    "full stack": "fullstack_batch",
-    "fullstack": "fullstack_batch",
-    "full-stack": "fullstack_batch",
-    "ai": "ai_batch",
-    "ml": "ai_batch",
-    "machine learning": "ai_batch",
-    "artificial intelligence": "ai_batch",
-    "dsa": "dsa_batch",
-    "data structures": "dsa_batch",
+# Fields that are conditionally required
+CONDITIONAL_FIELDS = {
+    "current_year":      lambda af: af.get("student_status") == "student",
+    "class_type":        lambda af: af.get("training_mode") == "online",
+    "join_date":         lambda af: str(af.get("interested", "")).lower() == "yes",
+    "callback_time":     lambda af: str(af.get("callback_requested", "")).lower() == "yes",
 }
 
+EXTRACT_SYSTEM_PROMPT = """\
+## ROLE
+You are a data extraction assistant for an admissions counseling agent at Gradious,
+a tech training institute. Today's date is {today}.
 
-def _extract_course_key(text: str) -> str | None:
-    text_lower = text.lower()
-    for kw, key in COURSE_KEY_MAP.items():
-        if kw in text_lower:
-            return key
+## OBJECTIVE
+Given the agent's last question and the student's latest reply, extract any lead information
+the student has provided. A student may answer multiple fields in a single reply
+(e.g. "I'm a 3rd year CSE student" answers student_status, current_year, department, and passout_year).
+
+## FIELDS TO EXTRACT
+{fields_description}
+
+## CURRENT STATE OF FILLED FIELDS
+{filled_fields}
+
+## RULES
+1. Extract ONLY fields that the student has clearly provided in their reply.
+2. For course_interest: map to fullstack_batch / ai_batch / dsa_batch based on what student says.
+3. For student_status: map to "student" or "graduated".
+4. For training_mode: map to "online" or "offline".
+5. For class_type: map to "self_paced" or "live".
+6. For interested / callback_requested: map to "yes" or "no".
+7. For passout_year: if student is in Nth year of a 4-year degree and mentions current year,
+   compute passout_year = {today_year} + (4 - current_year_number).
+   Example: 3rd year in 2026 → passout_year = 2027.
+8. Only extract fields with high confidence. Do not guess.
+9. Return null for any field you cannot confidently extract.
+
+## OUTPUT FORMAT
+Return STRICT JSON only. No explanation, no markdown.
+{{
+  "extracted": {{
+    "course_interest": "<value or null>",
+    "student_status": "<value or null>",
+    "current_year": "<value or null>",
+    "passout_year": "<value or null>",
+    "department": "<value or null>",
+    "training_mode": "<value or null>",
+    "class_type": "<value or null>",
+    "budget_range": "<value or null>",
+    "referral_source": "<value or null>",
+    "interested": "<value or null>",
+    "join_date": "<value or null>",
+    "callback_requested": "<value or null>",
+    "callback_time": "<value or null>"
+  }}
+}}"""
+
+NEXT_QUESTION_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious, a tech training institute in Hyderabad.
+
+## OBJECTIVE
+Ask the next pending question to the student in a natural, conversational phone call style.
+
+## TONE GUIDELINES
+- Simple and professional. No excessive praise or adjectives.
+- Brief acknowledgements only: "Ok.", "Got it.", "Sure." — nothing more.
+- Do not repeat the student's name repeatedly.
+- Keep the question short — this is a phone call, not a form.
+- Sound natural and vary phrasing across the conversation.
+
+## FILLED FIELDS (already collected — do NOT ask again)
+{filled_fields}
+
+## NEXT QUESTION TO ASK
+Field: {next_field}
+Description: {field_description}
+
+## STUDENT'S LAST REPLY (for context to phrase acknowledgement)
+"{last_user_reply}"
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your natural conversational response — acknowledgement + question>"
+}}"""
+
+GREETING_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious, a tech training institute.
+
+## OBJECTIVE
+Generate a natural, warm but brief call-opening message. This is the very first thing
+the agent says on the call.
+
+## RULES
+- Confirm you are speaking to the correct person by asking "Am I speaking with {name}?"
+- Keep it short — one sentence only.
+- Sound natural, not scripted.
+- Do not add anything else — no introduction, no pitch yet.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your greeting>"
+}}"""
+
+POST_CONFIRM_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious, a tech training institute in Hyderabad.
+
+## OBJECTIVE
+The student has confirmed their identity. Now introduce yourself briefly and ask the first question.
+
+## RULES
+- Introduce yourself as Bindhu from Gradious (1 short sentence).
+- Mention you are calling about their course registration.
+- Ask whether they are currently a student or have already graduated.
+- Keep the whole message under 3 sentences.
+- Sound natural, not scripted.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response>"
+}}"""
+
+WRAP_UP_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+All lead information has been collected. Close the call warmly and professionally.
+
+## DISPOSITION
+{disposition}
+
+## RULES
+- Keep it brief (2 sentences max).
+- If disposition is "interested": confirm someone will follow up.
+- If disposition is "callback": confirm the callback is scheduled.
+- If disposition is "not_interested": politely wish them well, leave door open.
+- Sound natural and genuine.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your closing message>"
+}}"""
+
+HUMAN_AGENT_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student wants to speak to a human admissions expert.
+Acknowledge their request warmly and ask for a preferred callback time.
+
+## RULES
+- Acknowledge the request with understanding (1 sentence).
+- Ask for a good time for the callback (1 sentence).
+- Keep it brief and natural.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response>"
+}}"""
+
+HUMAN_AGENT_CONFIRM_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student has provided their preferred callback time. Confirm and close the call.
+
+## CALLBACK TIME PROVIDED
+{callback_time}
+
+## RULES
+- Confirm the callback time naturally.
+- Close the call warmly (2 sentences max).
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response>"
+}}"""
+
+DE_ESCALATE_SYSTEM_PROMPT = """\
+## ROLE
+You are a calm, professional admissions counselor at Gradious on a phone call.
+
+## OBJECTIVE
+The student has been rude or hostile. De-escalate calmly without being defensive,
+then gently re-ask the pending question.
+
+## PENDING QUESTION
+{pending_question_description}
+
+## RULES
+- One calm acknowledgement sentence. No confrontation.
+- Redirect to the pending question naturally.
+- Keep it very brief.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response>"
+}}"""
+
+IRRELEVANT_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student said something unrelated to courses or Gradious. Politely redirect them
+back to the conversation and re-ask the pending question.
+
+## PENDING QUESTION
+{pending_question_description}
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response>"
+}}"""
+
+CONFUSED_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student seems confused or unsure about the question. Rephrase it more simply
+with a brief hint to help them answer.
+
+## ORIGINAL QUESTION
+{pending_question_description}
+
+## RULES
+- Rephrase simply — do not add new information.
+- Keep it short (1–2 sentences).
+- Sound natural.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your rephrased question>"
+}}"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _llm_json(messages: list[dict]) -> dict:
+    resp = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        temperature=0.4,
+        response_format={"type": "json_object"},
+        messages=messages,
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+def _filled_summary(af: dict) -> str:
+    if not af:
+        return "None yet."
+    return "\n".join(f"  {k}: {v}" for k, v in af.items())
+
+
+def _fields_description() -> str:
+    return "\n".join(f"  {k}: {v}" for k, v in ALL_FIELDS.items())
+
+
+def _get_next_field(af: dict) -> str | None:
+    order = [
+        "course_interest", "student_status", "current_year",
+        "passout_year", "department", "training_mode", "class_type",
+        "budget_range", "referral_source", "interested",
+        "join_date", "callback_requested", "callback_time",
+    ]
+    for field in order:
+        if field in af:
+            continue
+        # Check conditional skip
+        if field in CONDITIONAL_FIELDS:
+            if not CONDITIONAL_FIELDS[field](af):
+                continue  # condition not met — skip this field
+        return field
     return None
 
 
-def _get_next_question_key(state: LeadState) -> str | None:
+def _apply_extracted(state: LeadState, extracted: dict):
     af = state["answered_fields"]
-
-    if "course_interest" not in af:
-        return "course_interest"
-    if "student_status" not in af:
-        return "student_status"
-
-    status = af.get("student_status", "")
-    if "student" in status.lower():
-        if "current_year" not in af:
-            return "current_year"
-        if "passout_year" not in af:
-            return "passout_year"
-    if "passout_year" not in af:
-        return "passout_year"
-    if "department" not in af:
-        return "department"
-    if "training_mode" not in af:
-        return "training_mode"
-
-    mode = af.get("training_mode", "")
-    if "online" in mode.lower() and "class_type" not in af:
-        return "class_type"
-
-    if "budget_range" not in af:
-        return "budget_range"
-    if "referral_source" not in af:
-        return "referral_source"
-    if "interested" not in af:
-        return "interested"
-
-    interested = af.get("interested", "")
-    if str(interested).lower() in ("yes", "true") and "join_date" not in af:
-        return "join_date"
-
-    if "callback_requested" not in af:
-        return "callback_requested"
-
-    cb = af.get("callback_requested", "")
-    if str(cb).lower() in ("yes", "true") and "callback_time" not in af:
-        return "callback_time"
-
-    return None  # all done
+    for key, value in extracted.items():
+        if value is None or value == "null":
+            continue
+        af[key] = value
+        # Mirror to top-level
+        if key in ("course_interest", "student_status", "current_year", "passout_year",
+                   "department", "training_mode", "class_type", "budget_range",
+                   "referral_source", "join_date", "callback_time"):
+            state[key] = value  # type: ignore
+        if key == "interested":
+            state["interested"] = str(value).lower() == "yes"
+        if key == "callback_requested":
+            state["callback_requested"] = str(value).lower() == "yes"
 
 
-def _store_answer(state: LeadState, key: str, value: str):
-    state["answered_fields"][key] = value
-
-    # Mirror into top-level state fields
-    field_map = {
-        "course_interest": "course_interest",
-        "student_status": "student_status",
-        "current_year": "current_year",
-        "passout_year": "passout_year",
-        "department": "department",
-        "training_mode": "training_mode",
-        "class_type": "class_type",
-        "budget_range": "budget_range",
-        "referral_source": "referral_source",
-        "join_date": "join_date",
-        "callback_time": "callback_time",
-    }
-    if key in field_map:
-        state[field_map[key]] = value  # type: ignore
-
-    if key == "course_interest":
-        state["course_interest"] = _extract_course_key(value) or value
-    if key == "interested":
-        state["interested"] = value.lower() in ("yes", "true", "yeah", "yep")
-    if key == "callback_requested":
-        state["callback_requested"] = value.lower() in ("yes", "true", "yeah", "yep")
+def _set_response(state: LeadState, text: str):
+    from langchain_core.messages import AIMessage
+    state["last_agent_response"] = text
+    state["messages"].append(AIMessage(content=text))
 
 
-def _is_affirmative(text: str) -> bool:
-    normalized = text.strip().lower()
-    affirmatives = {"yes", "yeah", "yep", "sure", "correct", "that is right", "right"}
-    return any(norm in normalized for norm in affirmatives)
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Main node
+# ─────────────────────────────────────────────────────────────────────────────
 
 def questionnaire_node(state: LeadState) -> LeadState:
+    from langchain_core.messages import AIMessage
+
     intent = state.get("next_node", "answer")
     user_text = state["messages"][-1].content if state["messages"] else ""
     current_q_key = state.get("current_question_key", "")
-    current_q_text = QUESTION_PROMPTS.get(current_q_key, "")
+    today = date.today()
 
-    logger.info(f"[Questionnaire] Processing intent '{intent}' for lead {state['lead_id']}, question key: {current_q_key}")
-    logger.debug(f"User text: {user_text}")
+    logger.info(f"[Questionnaire] Lead={state['lead_id']} intent={intent} q_key={current_q_key}")
 
+    # ── 1. Identity confirmation ──────────────────────────────────────────────
     if current_q_key == "confirm_identity":
-        if _is_affirmative(user_text):
-            response = (
-                "This is Ava from Gradious. We received your registration for our training programs. "
-                "Are you currently a student or have you already graduated?"
-            )
+        affirmatives = {"yes", "yeah", "yep", "sure", "correct", "right", "speaking", "that's me", "this is"}
+        is_yes = any(w in user_text.lower() for w in affirmatives)
+
+        if is_yes:
+            result = _llm_json([{"role": "system", "content": POST_CONFIRM_SYSTEM_PROMPT}])
+            response = result.get("response", "This is Bindhu from Gradious. Are you currently a student or have you graduated?")
             state["current_question_key"] = "student_status"
         else:
-            response = (
-                "Sorry, I may have the wrong person. "
-                "If you're {name}, please confirm so I can continue.".format(name=state.get("lead_name"))
-            )
-            # Keep current_question_key as confirm_identity until we get a clear yes.
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+            response = f"Sorry about that — if you are {state.get('lead_name', 'the person we registered')}, please let me know so I can continue."
+        _set_response(state, response)
         return state
 
-    # ── Human agent short-circuit ──────────────────────────────────────
+    # ── 2. Human agent short-circuit ─────────────────────────────────────────
     if state.get("human_agent_requested") or intent == "human_agent":
-        logger.info(f"[Questionnaire] Human agent requested for lead {state['lead_id']}")
         state["human_agent_requested"] = True
         state["disposition"] = "human_agent_callback"
 
         if not state.get("callback_time"):
-            response = (
-                "Sure! Our admissions team can walk you through everything in detail. "
-                "What time works best for a callback?"
-            )
+            result = _llm_json([{"role": "system", "content": HUMAN_AGENT_SYSTEM_PROMPT}])
+            response = result.get("response", "Sure! What time works best for a callback from our team?")
             state["current_question_key"] = "callback_time"
         else:
-            # callback_time just collected
-            _store_answer(state, "callback_time", user_text)
+            _apply_extracted(state, {"callback_time": user_text})
             state["callback_requested"] = True
             state["call_ended"] = True
-            response = (
-                f"Done! Someone from our team will call you at {user_text}. "
-                "Talk soon!"
-            )
-
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+            result = _llm_json([{
+                "role": "system",
+                "content": HUMAN_AGENT_CONFIRM_SYSTEM_PROMPT.format(callback_time=user_text),
+            }])
+            response = result.get("response", f"Done! Our team will call you at {user_text}. Talk soon!")
+        _set_response(state, response)
         return state
 
-    # ── De-escalate rude ──────────────────────────────────────────────
+    # ── 3. Rude ───────────────────────────────────────────────────────────────
     if intent == "rude":
-        logger.warning(f"[Questionnaire] Rude intent detected for lead {state['lead_id']}")
-        response = DE_ESCALATE_RESPONSE.format(current_question=current_q_text)
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+        next_key = _get_next_field(state["answered_fields"])
+        desc = ALL_FIELDS.get(next_key or current_q_key, "our current question")
+        result = _llm_json([{
+            "role": "system",
+            "content": DE_ESCALATE_SYSTEM_PROMPT.format(pending_question_description=desc),
+        }])
+        _set_response(state, result.get("response", "I understand. Let me know when you're ready to continue."))
         return state
 
-    # ── Redirect irrelevant ───────────────────────────────────────────
+    # ── 4. Irrelevant ─────────────────────────────────────────────────────────
     if intent == "irrelevant":
-        logger.info(f"[Questionnaire] Irrelevant message from lead {state['lead_id']}")
-        response = IRRELEVANT_RESPONSE.format(current_question=current_q_text)
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+        next_key = _get_next_field(state["answered_fields"])
+        desc = ALL_FIELDS.get(next_key or current_q_key, "our current question")
+        result = _llm_json([{
+            "role": "system",
+            "content": IRRELEVANT_SYSTEM_PROMPT.format(pending_question_description=desc),
+        }])
+        _set_response(state, result.get("response", "Let's get back on track — " + desc))
         return state
 
-    # ── Clarify confused ──────────────────────────────────────────────
+    # ── 5. Confused ───────────────────────────────────────────────────────────
     if intent == "confused":
-        logger.debug(f"[Questionnaire] User confused for lead {state['lead_id']}")
-        prompt = CONFUSED_SYSTEM_PROMPT.format(current_question=current_q_text)
-        ai_response = llm.invoke([{"role": "system", "content": prompt}])
-        response = ai_response.content.strip()
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+        next_key = _get_next_field(state["answered_fields"])
+        desc = ALL_FIELDS.get(next_key or current_q_key, "the current question")
+        result = _llm_json([{
+            "role": "system",
+            "content": CONFUSED_SYSTEM_PROMPT.format(pending_question_description=desc),
+        }])
+        _set_response(state, result.get("response", desc))
         return state
 
-    # ── Normal answer: store and move to next question ────────────────
-    if current_q_key:
-        logger.debug(f"[Questionnaire] Storing answer for {current_q_key}: {user_text[:50]}...")
-        _store_answer(state, current_q_key, user_text)
+    # ── 6. Extract fields from user answer ───────────────────────────────────
+    if user_text and current_q_key not in ("", "confirm_identity"):
+        try:
+            extract_prompt = EXTRACT_SYSTEM_PROMPT.format(
+                today=today.isoformat(),
+                today_year=today.year,
+                fields_description=_fields_description(),
+                filled_fields=_filled_summary(state["answered_fields"]),
+            )
+            extract_result = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": extract_prompt},
+                    {"role": "user", "content": f"Agent asked: {state.get('last_agent_response', '')}\nStudent replied: {user_text}"},
+                ],
+            )
+            extracted = json.loads(extract_result.choices[0].message.content).get("extracted", {})
+            logger.info(f"[Questionnaire] Extracted fields: {extracted}")
+            _apply_extracted(state, extracted)
+        except Exception as e:
+            logger.error(f"[Questionnaire] Extraction error: {e}")
 
-    next_key = _get_next_question_key(state)
+    # ── 7. Determine next field ───────────────────────────────────────────────
+    next_key = _get_next_field(state["answered_fields"])
 
     if next_key is None:
-        # All questions answered
-        logger.info(f"[Questionnaire] All questions answered for lead {state['lead_id']}")
+        # All done
         state["call_ended"] = True
-        if state.get("callback_requested"):
+        af = state["answered_fields"]
+        if str(af.get("callback_requested", "")).lower() == "yes":
             state["disposition"] = "callback"
         elif state.get("interested"):
             state["disposition"] = "interested"
         else:
             state["disposition"] = "not_interested"
 
-        logger.info(f"[Questionnaire] Call disposition set to {state['disposition']} for lead {state['lead_id']}")
-
-        response = (
-            "Thanks for your time! Our admissions team will be in touch with you soon. "
-            "Have a good day!"
-        )
-        state["last_agent_response"] = response
-        state["messages"].append(AIMessage(content=response))
+        result = _llm_json([{
+            "role": "system",
+            "content": WRAP_UP_SYSTEM_PROMPT.format(disposition=state["disposition"]),
+        }])
+        _set_response(state, result.get("response", "Thanks for your time. We'll be in touch soon!"))
         return state
 
-    # Ask next question
-    logger.debug(f"[Questionnaire] Moving to next question: {next_key}")
+    # ── 8. Ask next question ──────────────────────────────────────────────────
     state["current_question_key"] = next_key
-    ack = _build_ack(user_text, current_q_key)
-    next_q_text = QUESTION_PROMPTS[next_key]
-    response = f"{ack}{next_q_text}" if ack else next_q_text
-
-    state["last_agent_response"] = response
-    state["messages"].append(AIMessage(content=response))
+    result = _llm_json([{
+        "role": "system",
+        "content": NEXT_QUESTION_SYSTEM_PROMPT.format(
+            filled_fields=_filled_summary(state["answered_fields"]),
+            next_field=next_key,
+            field_description=ALL_FIELDS[next_key],
+            last_user_reply=user_text,
+        ),
+    }])
+    response = result.get("response", ALL_FIELDS[next_key])
+    _set_response(state, response)
     return state
 
 
-def _build_ack(user_text: str, previous_key: str) -> str:
-    """Simple acknowledgement — no over-the-top adjectives."""
-    if not user_text or not previous_key:
-        return ""
-    acks = ["Ok! ", "Got it. ", "Sure. ", "Noted. "]
-    import hashlib
-    idx = int(hashlib.md5(user_text.encode()).hexdigest(), 16) % len(acks)
-    return acks[idx]
+def generate_greeting(lead_name: str) -> str:
+    """Called at session init to generate a dynamic LLM greeting."""
+    try:
+        result = _llm_json([{
+            "role": "system",
+            "content": GREETING_SYSTEM_PROMPT.format(name=lead_name),
+        }])
+        return result.get("response", f"Hi, am I speaking with {lead_name}?")
+    except Exception as e:
+        logger.error(f"[Questionnaire] Greeting generation error: {e}")
+        return f"Hi, am I speaking with {lead_name}?"

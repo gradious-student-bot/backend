@@ -1,34 +1,62 @@
+import json
 import logging
-from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from agent.state import LeadState
-from agent.prompts.repeat_prompt import REPEAT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
+client = OpenAI()
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+REPEAT_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious on a call with a student.
+
+## OBJECTIVE
+The student asked you to repeat or said they didn't understand your previous response.
+Rephrase it naturally and conversationally — do not read it back word for word.
+
+## RULES
+1. Start with a brief natural acknowledgement: "Sure!", "Of course!", "No problem!"
+2. Rephrase the content more clearly — expand slightly if it helps clarity.
+3. Do NOT add any new information not present in the previous response.
+4. Keep it short and suitable for spoken conversation.
+5. Return STRICT JSON only.
+
+## PREVIOUS RESPONSE TO REPHRASE
+{last_agent_response}
+
+## OUTPUT FORMAT
+{{
+  "response": "<your rephrased response>"
+}}"""
 
 
 def repeat_node(state: LeadState) -> LeadState:
+    from langchain_core.messages import AIMessage
+
     last_response = state.get("last_agent_response", "")
-    logger.info(f"[Repeat Node] Repeat requested for lead {state['lead_id']}")
-    logger.debug(f"Last response length: {len(last_response)} chars")
+    logger.info(f"[Repeat] Lead={state['lead_id']} | Rephrasing last response")
 
     if not last_response:
-        logger.warning(f"[Repeat Node] No previous response to repeat for lead {state['lead_id']}")
         response = "Sorry, I don't have anything to repeat. Could you let me know what you'd like to know?"
         state["messages"].append(AIMessage(content=response))
-        state["last_agent_response"] = response
         return state
 
-    prompt = REPEAT_SYSTEM_PROMPT.format(last_agent_response=last_response)
+    try:
+        result = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0.3,
+            response_format={"type": "json_object"},
+            messages=[{
+                "role": "system",
+                "content": REPEAT_SYSTEM_PROMPT.format(last_agent_response=last_response),
+            }],
+        )
+        parsed = json.loads(result.choices[0].message.content)
+        response = parsed.get("response", last_response)
+    except Exception as e:
+        logger.error(f"[Repeat] LLM error: {e}")
+        response = f"Sure! {last_response}"
 
-    logger.debug(f"[Repeat Node] Invoking LLM to rephrase message")
-    response = llm.invoke([{"role": "system", "content": prompt}])
-    rephrased = response.content.strip()
-    logger.debug(f"[Repeat Node] Message rephrased for lead {state['lead_id']}")
-
-    # Note: last_agent_response is NOT updated here — repeat shouldn't
-    # replace the original; next user answer should still map to current_question_key
-    state["messages"].append(AIMessage(content=rephrased))
+    # Do NOT update last_agent_response — repeat doesn't replace the original
+    state["messages"].append(AIMessage(content=response))
     return state

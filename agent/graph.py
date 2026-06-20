@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def route_after_intent(state: LeadState) -> str:
     intent = state.get("next_node", "answer")
-    logger.debug(f"Routing after intent: {intent}")
+    logger.info(f"Routing after intent: {intent}")
     routing = {
         "answer":        "questionnaire",
         "query":         "faq",
@@ -26,20 +26,20 @@ def route_after_intent(state: LeadState) -> str:
         "end_call":      "end",
     }
     route = routing.get(intent, "questionnaire")
-    logger.debug(f"Route selected: {route}")
+    logger.info(f"Route selected: {route}")
     return route
 
 
 def route_after_questionnaire(state: LeadState) -> str:
     if state.get("call_ended"):
-        logger.debug("Call ended, routing to airtable")
+        logger.info("Call ended, routing to airtable")
         return "airtable"
-    logger.debug("Waiting for next user turn")
+    logger.info("Waiting for next user turn")
     return END  # wait for next user turn
 
 
 def route_after_end(state: LeadState) -> str:
-    logger.debug("Routing from end_node to airtable")
+    logger.info("Routing from end_node to airtable")
     return "airtable"
 
 

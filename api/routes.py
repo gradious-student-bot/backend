@@ -58,7 +58,7 @@ async def init_session(req: InitRequest):
     logger.info(f"[Routes] POST /agent/init - Creating session for lead {req.lead_id}")
     state = _init_state(req.lead_id, req.lead_name, req.phone, req.email)
     _sessions[req.session_id] = state
-    logger.debug(f"[Routes] Session {req.session_id} created successfully")
+    logger.info(f"[Routes] Session {req.session_id} created successfully")
     return InitResponse(
         agent_text=state["last_agent_response"],
         session_id=req.session_id,
@@ -67,7 +67,7 @@ async def init_session(req: InitRequest):
 
 @router.post("/agent/turn", response_model=TurnResponse)
 async def agent_turn(req: TurnRequest):
-    logger.debug(f"[Routes] POST /agent/turn - Processing turn for session {req.session_id}")
+    logger.info(f"[Routes] POST /agent/turn - Processing turn for session {req.session_id}")
     state = _sessions.get(req.session_id)
     if not state:
         logger.warning(f"[Routes] Session {req.session_id} not found")
@@ -77,13 +77,13 @@ async def agent_turn(req: TurnRequest):
         logger.warning(f"[Routes] Attempted turn on ended call for session {req.session_id}")
         raise HTTPException(status_code=400, detail="Call has already ended.")
 
-    logger.debug(f"[Routes] User input for {state['lead_id']}: {req.user_text[:50]}...")
+    logger.info(f"[Routes] User input for {state['lead_id']}: {req.user_text[:50]}...")
     state["messages"].append(HumanMessage(content=req.user_text))
 
     result = agent_graph.invoke(state)
     _sessions[req.session_id] = result
     
-    logger.debug(f"[Routes] Turn processed for session {req.session_id}, call_ended: {result.get('call_ended')}")
+    logger.info(f"[Routes] Turn processed for session {req.session_id}, call_ended: {result.get('call_ended')}")
 
     agent_text = result["messages"][-1].content
     return TurnResponse(
@@ -114,7 +114,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
         )
         _sessions[session_id] = state
         
-        logger.debug(f"[Routes] Sending initial greeting via WebSocket")
+        logger.info(f"[Routes] Sending initial greeting via WebSocket")
         await websocket.send_json({
             "agent_text": state["last_agent_response"],
             "call_ended": False,
@@ -125,10 +125,10 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
             user_text = data.get("text", "")
 
             if not user_text:
-                logger.debug(f"[Routes] Empty message received")
+                logger.info(f"[Routes] Empty message received")
                 continue
 
-            logger.debug(f"[Routes] WebSocket message received for {state['lead_id']}: {user_text[:50]}...")
+            logger.info(f"[Routes] WebSocket message received for {state['lead_id']}: {user_text[:50]}...")
             state["messages"].append(HumanMessage(content=user_text))
             result = agent_graph.invoke(state)
             _sessions[session_id] = result
@@ -136,7 +136,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
             agent_text = result["messages"][-1].content
             call_ended = result.get("call_ended", False)
             
-            logger.debug(f"[Routes] Sending WebSocket response, call_ended: {call_ended}")
+            logger.info(f"[Routes] Sending WebSocket response, call_ended: {call_ended}")
 
             await websocket.send_json({
                 "agent_text": agent_text,

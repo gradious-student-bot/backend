@@ -17,7 +17,7 @@ def write_lead(lead_data: dict) -> dict:
     """
     clean_data = {k: v for k, v in lead_data.items() if v is not None}
     logger.info(f"Writing lead record to Airtable: {clean_data.get('Lead ID')}")
-    logger.debug(f"Lead data fields: {list(clean_data.keys())}")
+    logger.info(f"Lead data fields: {list(clean_data.keys())}")
     
     try:
         record = _table.create(clean_data)

@@ -33,5 +33,5 @@ app.include_router(router)
 
 @app.get("/health")
 async def health():
-    logger.debug("Health check endpoint called")
+    logger.info("Health check endpoint called")
     return {"status": "ok"}

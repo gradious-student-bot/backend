@@ -17,7 +17,7 @@ logger.info(f"Knowledge base loaded successfully with {len(kb.get('courses', {})
 # ─────────────────────────────────────────────
 
 def build_base_context(kb: dict) -> str:
-    logger.debug("Building base context")
+    logger.info("Building base context")
     company = kb["company"]
     platform = kb["platform"]
     return f"""
@@ -38,7 +38,7 @@ Certificate    : {platform["certificate"]}
 
 
 def build_placement_context(kb: dict) -> str:
-    logger.debug("Building placement context")
+    logger.info("Building placement context")
     p = kb["placements"]
     companies = ", ".join(p["top_hiring_companies"])
     return f"""
@@ -56,7 +56,7 @@ Top Hiring Companies : {companies}
 # ─────────────────────────────────────────────
 
 def build_course_overview(kb: dict, course: str) -> str:
-    logger.debug(f"Building course overview for {course}")
+    logger.info(f"Building course overview for {course}")
     c = kb["courses"][course]
     topics = "\n".join(f"  • {t}" for t in c["course_overview"]["what_you_will_learn"])
     return (
@@ -72,7 +72,7 @@ What You'll Learn  :
 
 
 def build_course_fee(kb: dict, course: str) -> str:
-    logger.debug(f"Building course fee context for {course}")
+    logger.info(f"Building course fee context for {course}")
     c = kb["courses"][course]
     return (
         build_base_context(kb)
@@ -87,7 +87,7 @@ Live Class Fee : {c["live"]["fee_structure"]}
 
 
 def build_course_duration(kb: dict, course: str) -> str:
-    logger.debug(f"Building course duration context for {course}")
+    logger.info(f"Building course duration context for {course}")
     c = kb["courses"][course]
     self_dur = c["self"].get("course_duration", c.get("course_duration", "N/A"))
     live_dur = c["live"].get("course_duration", c.get("course_duration", "N/A"))
@@ -104,7 +104,7 @@ Live       : {live_dur}
 
 
 def build_course_platform_access(kb: dict, course: str) -> str:
-    logger.debug(f"Building platform access context for {course}")
+    logger.info(f"Building platform access context for {course}")
     c = kb["courses"][course]
     if "platform_access" in c:
         self_acc = live_acc = c["platform_access"]
@@ -124,7 +124,7 @@ Live       : {live_acc}
 
 
 def build_course_eligibility(kb: dict, course: str) -> str:
-    logger.debug(f"Building course eligibility context for {course}")
+    logger.info(f"Building course eligibility context for {course}")
     c = kb["courses"][course]
     return (
         build_base_context(kb)
@@ -138,7 +138,7 @@ Eligibility : {c["eligibility"]}
 
 
 def build_complete_course_context(kb: dict, course: str) -> str:
-    logger.debug(f"Building complete course context for {course}")
+    logger.info(f"Building complete course context for {course}")
     c = kb["courses"][course]
     topics = "\n".join(f"  • {t}" for t in c["course_overview"]["what_you_will_learn"])
     self_dur = c["self"].get("course_duration", c.get("course_duration", "N/A"))
@@ -183,11 +183,11 @@ def build_faq_context(course_keys: list[str]) -> str:
     context += "\n\n" + build_placement_context(kb)
 
     keys = course_keys if course_keys else list(kb["courses"].keys())
-    logger.debug(f"Adding {len(keys)} course(s) to FAQ context")
+    logger.info(f"Adding {len(keys)} course(s) to FAQ context")
     for key in keys:
         context += build_complete_course_context(kb, key)
 
-    logger.debug(f"FAQ context built, length: {len(context)} chars")
+    logger.info(f"FAQ context built, length: {len(context)} chars")
     return context
 
 
@@ -196,7 +196,7 @@ def detect_course_from_text(text: str) -> list[str]:
     Simple keyword-based course detection from user query text.
     Returns list of matched course keys.
     """
-    logger.debug(f"Detecting courses from text")
+    logger.info(f"Detecting courses from text")
     text_lower = text.lower()
     matched = []
     keywords = {
@@ -209,7 +209,7 @@ def detect_course_from_text(text: str) -> list[str]:
             matched.append(key)
     
     if matched:
-        logger.debug(f"Detected courses: {matched}")
+        logger.info(f"Detected courses: {matched}")
     return matched
 
 
@@ -221,11 +221,11 @@ def resolve_courses_for_faq(user_query: str, course_interest: str | None) -> lis
     """
     logger.info(f"Resolving courses for FAQ - course_interest: {course_interest}")
     if course_interest:
-        logger.debug(f"Using course_interest: {course_interest}")
+        logger.info(f"Using course_interest: {course_interest}")
         return [course_interest]
     detected = detect_course_from_text(user_query)
     if detected:
-        logger.debug(f"Using detected courses: {detected}")
+        logger.info(f"Using detected courses: {detected}")
         return detected
-    logger.debug("No course context - will use all courses")
+    logger.info("No course context - will use all courses")
     return []  # empty = all courses (handled in build_faq_context)

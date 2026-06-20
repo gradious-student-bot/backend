@@ -1,32 +1,62 @@
+import json
 import logging
-from langchain_core.messages import AIMessage
+from openai import OpenAI
 from agent.state import LeadState
 
 logger = logging.getLogger(__name__)
+client = OpenAI()
 
+END_SYSTEM_PROMPT = """\
+## ROLE
+You are a phone-based admissions counselor at Gradious closing a call.
 
-NOT_INTERESTED_RESPONSE = (
-    "Ok, no problem. If you change your mind, feel free to reach out to us at "
-    "admissions@gradious.com. Have a good day!"
-)
+## OBJECTIVE
+Close the call naturally based on the reason below.
 
-END_CALL_RESPONSE = (
-    "Thanks for your time. We'll be in touch. Have a good day!"
-)
+## REASON
+{reason}
+
+## RULES
+- 2 sentences max.
+- not_interested: politely wish them well, say they can reach out anytime.
+- end_call: thank them and say the team will be in touch.
+- Warm but brief.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<closing message>"
+}}"""
 
 
 def end_node(state: LeadState) -> LeadState:
+    from langchain_core.messages import AIMessage
+
     intent = state.get("next_node", "end_call")
-    logger.info(f"[End Node] Ending call for lead {state['lead_id']} with intent: {intent}")
+    logger.info(f"[End] Lead={state['lead_id']} | Reason={intent}")
 
     if intent == "not_interested":
         state["disposition"] = "not_interested"
-        response = NOT_INTERESTED_RESPONSE
-        logger.info(f"[End Node] Lead {state['lead_id']} marked as not_interested")
+        reason = "Student said they are not interested in the courses."
     else:
         state["disposition"] = state.get("disposition") or "end_call"
-        response = END_CALL_RESPONSE
-        logger.info(f"[End Node] Lead {state['lead_id']} call ended with disposition: {state['disposition']}")
+        reason = "Student is ending the call politely."
+
+    try:
+        result = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0.4,
+            response_format={"type": "json_object"},
+            messages=[{
+                "role": "system",
+                "content": END_SYSTEM_PROMPT.format(reason=reason),
+            }],
+        )
+        parsed = json.loads(result.choices[0].message.content)
+        response = parsed.get("response", "Thanks for your time. Have a good day!")
+    except Exception as e:
+        logger.error(f"[End] LLM error: {e}")
+        response = "Thanks for your time. Have a good day!"
 
     state["call_ended"] = True
     state["last_agent_response"] = response
