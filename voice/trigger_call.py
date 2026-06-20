@@ -1,16 +1,13 @@
 import asyncio
-import os
-from dotenv import load_dotenv
 from livekit import api
- 
-load_dotenv()
+from config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
 
 async def make_call():
    
     lk_api = api.LiveKitAPI(
-        os.getenv("LIVEKIT_URL"),
-        os.getenv("LIVEKIT_API_KEY"),
-        os.getenv("LIVEKIT_API_SECRET")
+        url=LIVEKIT_URL,
+        api_key=LIVEKIT_API_KEY,
+        api_secret=LIVEKIT_API_SECRET
     )
     
     try:

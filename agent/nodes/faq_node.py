@@ -2,10 +2,11 @@ import json
 import logging
 from openai import OpenAI
 from agent.state import LeadState
+from config import OPENAI_API_KEY
 from knowledge.context_builders import build_faq_context, resolve_courses_for_faq
 
 logger = logging.getLogger(__name__)
-client = OpenAI()
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 FAQ_SYSTEM_PROMPT = """\
 ## ROLE

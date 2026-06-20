@@ -2,9 +2,10 @@ import json
 import logging
 from openai import OpenAI
 from agent.state import LeadState
+from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
-client = OpenAI()
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 INTENT_SYSTEM_PROMPT = """\
 ## ROLE
@@ -86,7 +87,7 @@ Return STRICT JSON only. No explanation, no markdown, no extra text.
 
 
 def intent_router_node(state: LeadState) -> LeadState:
-    user_message = state["messages"][-1].content
+    user_message = state.get("user_message", "")
     logger.info(f"[IntentRouter] Lead={state['lead_id']} | Input: {user_message[:80]}")
 
     # Identity confirmation phase — always treat as answer

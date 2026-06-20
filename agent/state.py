@@ -11,6 +11,7 @@ class LeadState(TypedDict):
     email: Optional[str]
 
     # Conversation
+    user_message: str # latest user message, set by routes.py before invoking the graph
     messages: list[BaseMessage]
     last_agent_response: str
     next_node: str  # set by intent_router to direct graph routing

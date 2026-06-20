@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gradious AI Assistant</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+
+    .chat-widget {
+      width: 420px;
+      height: 650px;
+      margin: 35px auto;
+      background: white;
+      border-radius: 18px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      background: #ff573d;
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .header h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .header p {
+      margin: 5px 0 0;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .chat-box {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+
+    .message {
+      max-width: 82%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .bot {
+      background: white;
+      color: #222;
+      border: 1px solid #e1e1e1;
+      border-bottom-left-radius: 4px;
+    }
+
+    .user {
+      margin-left: auto;
+      background: #ff573d;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .typing {
+      display: none;
+      padding: 0 16px 8px;
+      color: #777;
+      font-size: 12px;
+      background: #fafafa;
+    }
+
+    .input-area {
+      display: flex;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid #eee;
+      background: white;
+    }
+
+    .input-area input {
+      flex: 1;
+      padding: 11px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    .input-area button {
+      padding: 11px 16px;
+      border: none;
+      border-radius: 10px;
+      background: #ff573d;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .input-area button:hover {
+      background: #e64c34;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="chat-widget">
+    <div class="header">
+      <h3>Gradious AI Assistant</h3>
+      <p>Your Career Guidance Partner</p>
+    </div>
+
+    <div class="chat-box" id="chatBox"></div>
+
+    <div class="typing" id="typing">
+      Assistant is typing...
+    </div>
+
+    <div class="input-area">
+      <input
+        type="text"
+        id="messageInput"
+        placeholder="Type your reply..."
+        onkeydown="handleEnter(event)"
+      />
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "https://oliver-patulous-valeria.ngrok-free.dev";
+
+    let sessionId = null;
+    let callEnded = false;
+
+    function generateSessionId() {
+      return "session_" + Date.now();
+    }
+
+    async function startSession() {
+      sessionId = generateSessionId();
+
+      const res = await fetch(`${API_BASE}/agent/init`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          lead_id: "LEAD001",
+          lead_name: "Meghan",
+          phone: "9876543210"
+        })
+      });
+
+      const data = await res.json();
+
+      sessionId = data.session_id;
+      addBotMessage(data.agent_text);
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const message = input.value.trim();
+
+      if (!message || !sessionId || callEnded) return;
+
+      addUserMessage(message);
+      input.value = "";
+
+      const res = await fetch(`${API_BASE}/agent/turn`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          user_text: message
+        })
+      });
+
+      const data = await res.json();
+
+      addBotMessage(data.agent_text);
+
+      callEnded = data.call_ended || false;
+
+      if (callEnded) {
+        console.log("Disposition:", data.disposition);
+        document.getElementById("messageInput").disabled = true;
+      }
+    }
+
+    function addBotMessage(text) {
+      const chatBox = document.getElementById("chatBox");
+      chatBox.innerHTML += `<div class="message bot">${text}</div>`;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addUserMessage(text) {
+      const chatBox = document.getElementById("chatBox");
+      chatBox.innerHTML += `<div class="message user">${text}</div>`;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function handleEnter(event) {
+      if (event.key === "Enter") {
+        sendMessage();
+      }
+    }
+
+    window.onload = startSession;
+  </script>
+</body>
+</html>

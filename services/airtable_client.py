@@ -1,13 +1,13 @@
 import logging
 from pyairtable import Api
-from config import settings
+from config import AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME
 
 logger = logging.getLogger(__name__)
 
-_api = Api(settings.AIRTABLE_TOKEN)
-_table = _api.table(settings.AIRTABLE_BASE_ID, settings.AIRTABLE_TABLE_NAME)
+_api = Api(AIRTABLE_TOKEN)
+_table = _api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
 
-logger.info(f"Airtable client initialized - Table: {settings.AIRTABLE_TABLE_NAME}")
+logger.info(f"Airtable client initialized - Table: {AIRTABLE_TABLE_NAME}")
 
 
 def write_lead(lead_data: dict) -> dict:

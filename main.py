@@ -1,15 +1,14 @@
 import os
 import logging
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+
 from api.routes import router
-from config import settings
+from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
-
-# Set OpenAI key for LangChain
-os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
-logger.info("OpenAI API key configured")
 
 app = FastAPI(
     title="Gradious Lead Agent",
@@ -35,3 +34,21 @@ app.include_router(router)
 async def health():
     logger.info("Health check endpoint called")
     return {"status": "ok"}
+
+# Load the templates/chat.html file and serve it at the /chat endpoint
+@app.get("/chat", response_class=HTMLResponse)
+async def chat():
+    logger.info("Serving chat interface")
+    with open("templates/chat.html", "r") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content, status_code=200)
+
+if __name__ == "__main__":
+    logger.info("Starting server on http://localhost:8000")
+    uvicorn.run(
+        "main:app",
+        # host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        # reload=True
+    )

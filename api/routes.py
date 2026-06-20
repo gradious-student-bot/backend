@@ -130,6 +130,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
 
             logger.info(f"[Routes] WebSocket message received for {state['lead_id']}: {user_text[:50]}...")
             state["messages"].append(HumanMessage(content=user_text))
+            state["user_message"] = user_text  # Update latest user message in state for routing
             result = agent_graph.invoke(state)
             _sessions[session_id] = result
 

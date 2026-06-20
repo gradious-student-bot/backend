@@ -1,5 +1,9 @@
 import logging
-from pydantic_settings import BaseSettings
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -8,16 +12,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configuration variables from environment
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-class Settings(BaseSettings):
-    OPENAI_API_KEY: str
-    AIRTABLE_TOKEN: str
-    AIRTABLE_BASE_ID: str
-    AIRTABLE_TABLE_NAME: str = "Leads"
+AIRTABLE_TOKEN = os.environ.get("AIRTABLE_TOKEN")
+AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
+AIRTABLE_TABLE_NAME = os.environ.get("AIRTABLE_TABLE_NAME", "Leads")
 
-    class Config:
-        env_file = ".env"
+LIVEKIT_URL = os.getenv("LIVEKIT_URL")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
-
-settings = Settings()
-logger.info("Settings loaded successfully")
+logger.info("Configuration loaded successfully")

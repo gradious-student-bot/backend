@@ -79,3 +79,12 @@ def build_graph() -> StateGraph:
 
 
 agent_graph = build_graph()
+
+# Download the graph image in PNG using draw_mermaid_png()
+# try:
+#     png_data = agent_graph.get_graph().draw_mermaid_png(max_retries=5)
+#     with open("agent_graph.png", "wb") as f:
+#         f.write(png_data)
+#     logger.info("Graph image saved as agent_graph.png")
+# except Exception as e:
+#     logger.error(f"Failed to generate graph image: {e}")

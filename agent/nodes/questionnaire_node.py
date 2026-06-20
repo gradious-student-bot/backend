@@ -3,9 +3,10 @@ import logging
 from datetime import date
 from openai import OpenAI
 from agent.state import LeadState
+from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
-client = OpenAI()
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Field schema sent to LLM so it knows what to extract and what's pending
@@ -293,6 +294,7 @@ def _llm_json(messages: list[dict]) -> dict:
 
 
 def _filled_summary(af: dict) -> str:
+    logger.info(f"[Questionnaire] Filled fields summary: {af}")
     if not af:
         return "None yet."
     return "\n".join(f"  {k}: {v}" for k, v in af.items())
@@ -320,6 +322,7 @@ def _get_next_field(af: dict) -> str | None:
     return None
 
 
+# Need to check this
 def _apply_extracted(state: LeadState, extracted: dict):
     af = state["answered_fields"]
     for key, value in extracted.items():
