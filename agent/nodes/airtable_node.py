@@ -18,7 +18,6 @@ def airtable_node(state: LeadState) -> LeadState:
         "department":          state.get("department"),
         "training_mode":       state.get("training_mode"),
         "class_type":          state.get("class_type"),
-        "budget_range":        state.get("budget_range"),
         "referral_source":     state.get("referral_source"),
         "interested":          state.get("interested"),
         "join_date":           state.get("join_date"),

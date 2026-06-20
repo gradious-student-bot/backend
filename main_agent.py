@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openpyxl import load_workbook
 load_dotenv()
 
-CWD_PATH = r"C:\Users\chand\Desktop\Claude agent bot\backend"
+CWD_PATH = r"C:\Users\chand\Desktop\Claude_agent_bot\backend"
 
 SYSTEM_PROMPT = f"""
 # Gradious Lead Agent — Claude Code Task Prompt
@@ -407,12 +407,12 @@ class CostTracker:
         self.input_tokens += in_tok
         self.output_tokens += out_tok
 
-        self.steps.append({{
+        self.steps.append({
             "timestamp": datetime.now(),
             "input_tokens": in_tok,
             "output_tokens": out_tok,
             "step_cost_usd": self.calculate_cost(in_tok, out_tok)
-        }})
+        })
 
     def calculate_cost(self, in_tok, out_tok):
         return round(
@@ -432,7 +432,7 @@ class CostTracker:
         os.makedirs("costing", exist_ok=True)
         file_path = "costing/agent_costs.xlsx"
 
-        df_summary = pd.DataFrame([{{
+        df_summary = pd.DataFrame([{
             "timestamp": datetime.now(),
             "model": self.model,
             "tool_calls": self.tool_calls,
@@ -440,7 +440,7 @@ class CostTracker:
             "total_output_tokens": self.output_tokens,
             "total_cost_usd": self.total_cost(),
             "duration_seconds": (datetime.now() - self.start_time).total_seconds()
-        }}])
+        }])
 
         df_steps = pd.DataFrame(self.steps)
 
@@ -502,7 +502,7 @@ async def main():
             model="us.anthropic.claude-sonnet-4-6",
             allowed_tools=["Read", "Edit", "Bash"],
             permission_mode="acceptEdits",
-            cwd = r"C:\Users\chand\Desktop\Claude doc gen"
+            cwd = r"C:\Users\chand\Desktop\Claude_agent_bot\backend"
         )
     ):
 
@@ -514,11 +514,11 @@ async def main():
             for block in message.content:
                 if isinstance(block, ToolUseBlock):
                     tracker.log_tool_call()
-                    print(f"\n🔧 TOOL: {{block.name}}")
-                    print(f"INPUT: {{block.input}}")
+                    print(f"\n🔧 TOOL: {block.name}")
+                    print(f"INPUT: {block.input}")
 
         elif hasattr(message, "result"):
-            print(f"\n✅ FINAL RESULT:\n{{message.result}}")
+            print(f"\n✅ FINAL RESULT:\n{message.result}")
 
     tracker.save_to_excel()
 

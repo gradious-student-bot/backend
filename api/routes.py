@@ -5,6 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 from agent.graph import agent_graph
 from agent.state import LeadState
+from agent.nodes.questionnaire_node import generate_greeting
 from models.schemas import TurnRequest, TurnResponse, InitRequest, InitResponse
 
 logger = logging.getLogger(__name__)
@@ -14,13 +15,10 @@ router = APIRouter()
 # In-memory session store — replace with Redis for production
 _sessions: dict[str, LeadState] = {}
 
-GREETING_TEMPLATE = (
-    "Hi, am I speaking with {name}?"
-)
-
 
 def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) -> LeadState:
-    greeting = GREETING_TEMPLATE.format(name=lead_name)
+    # Task 8: use LLM-generated greeting
+    greeting = generate_greeting(lead_name)
     logger.info(f"[Routes] Initializing session for lead {lead_id}")
     return LeadState(
         lead_id=lead_id,
@@ -33,6 +31,11 @@ def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) 
         current_question_key="confirm_identity",
         answered_fields={},
         human_agent_requested=False,
+        greeting_step=0,              # Task 8: multi-step greeting
+        question_retry_counts={},     # Task 4: retry counter
+        pending_switch=None,          # Task 1: entity switch confirmation
+        pending_sub_query=None,       # Task 2: multi-intent sub_query
+        pending_next_question_text=None,  # Task 2: deferred next question
         course_interest=None,
         student_status=None,
         current_year=None,
@@ -40,7 +43,6 @@ def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) 
         department=None,
         training_mode=None,
         class_type=None,
-        budget_range=None,
         referral_source=None,
         interested=None,
         join_date=None,
@@ -82,7 +84,7 @@ async def agent_turn(req: TurnRequest):
 
     result = agent_graph.invoke(state)
     _sessions[req.session_id] = result
-    
+
     logger.info(f"[Routes] Turn processed for session {req.session_id}, call_ended: {result.get('call_ended')}")
 
     agent_text = result["messages"][-1].content
@@ -105,7 +107,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
     try:
         init_data: dict[str, str] = await websocket.receive_json()
         logger.info(f"[Routes] WebSocket init data received for lead {init_data.get('lead_id')}")
-        
+
         state = _init_state(
             lead_id=init_data["lead_id"],
             lead_name=init_data["lead_name"],
@@ -113,7 +115,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
             email=init_data.get("email"),
         )
         _sessions[session_id] = state
-        
+
         logger.info(f"[Routes] Sending initial greeting via WebSocket")
         await websocket.send_json({
             "agent_text": state["last_agent_response"],
@@ -135,7 +137,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
 
             agent_text = result["messages"][-1].content
             call_ended = result.get("call_ended", False)
-            
+
             logger.info(f"[Routes] Sending WebSocket response, call_ended: {call_ended}")
 
             await websocket.send_json({

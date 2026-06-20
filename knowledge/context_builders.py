@@ -28,8 +28,8 @@ Office Timings : {company["office_timings"]}
 Email          : {company["contact_email"]}
 Website        : {company["website"]}
 
-LEARNING PLATFORM (Leap LMS)
-LMS            : {platform["lms"]}
+LEARNING PLATFORM (Leap)
+Platform       : {platform["lms"]}
 Mentorship     : {platform["mentors"]}
 Doubt Sessions : {platform["doubt_sessions"]}
 Daily Standups : {platform["standups"]}
@@ -37,17 +37,35 @@ Certificate    : {platform["certificate"]}
 """.strip()
 
 
+def build_lms_detail_context(kb: dict) -> str:
+    """
+    Returns a detailed paragraph about the Leap platform's learning approach and features.
+    Used when the user specifically asks about the platform or requests more details.
+    """
+    logger.info("Building LMS detail context")
+    platform = kb["platform"]
+    features = "\n".join(f"  • {f}" for f in platform.get("features", []))
+    return f"""
+
+LEAP PLATFORM — LEARNING EXPERIENCE
+Learning Approach : {platform.get("learning_approach", "Practice-first learning")}
+Key Features      :
+{features}
+""".strip()
+
+
 def build_placement_context(kb: dict) -> str:
     logger.info("Building placement context")
     p = kb["placements"]
-    companies = ", ".join(p["top_hiring_companies"])
+    # Task 3: renamed top_hiring_companies → partnered_companies
+    companies = ", ".join(p["partnered_companies"])
     return f"""
 
 PLACEMENT SUPPORT
 Placement Assistance : {"Yes" if p["assistance"] else "No"}
 Average Package      : {p["avg_package"]}
 Placement Rate       : {p["placement_rate"]}
-Top Hiring Companies : {companies}
+Partnered Companies  : {companies}
 """.strip()
 
 
@@ -172,15 +190,20 @@ Topics Covered  :
 # FAQ Context Builder (used by faq_node)
 # ─────────────────────────────────────────────
 
-def build_faq_context(course_keys: list[str]) -> str:
+def build_faq_context(course_keys: list, include_lms_detail: bool = False) -> str:
     """
     Always includes: base context + placement context.
     Variable: complete course block for each key in course_keys.
     If course_keys is empty, includes all courses.
+    include_lms_detail: if True, appends the full Leap platform detail block.
     """
-    logger.info(f"Building FAQ context for courses: {course_keys if course_keys else 'ALL'}")
+    logger.info(f"Building FAQ context for courses: {course_keys if course_keys else 'ALL'}, include_lms_detail={include_lms_detail}")
     context = build_base_context(kb)
     context += "\n\n" + build_placement_context(kb)
+
+    if include_lms_detail:
+        logger.info("Including full LMS detail block in FAQ context")
+        context += "\n\n" + build_lms_detail_context(kb)
 
     keys = course_keys if course_keys else list(kb["courses"].keys())
     logger.info(f"Adding {len(keys)} course(s) to FAQ context")
@@ -191,7 +214,7 @@ def build_faq_context(course_keys: list[str]) -> str:
     return context
 
 
-def detect_course_from_text(text: str) -> list[str]:
+def detect_course_from_text(text: str) -> list:
     """
     Simple keyword-based course detection from user query text.
     Returns list of matched course keys.
@@ -207,13 +230,13 @@ def detect_course_from_text(text: str) -> list[str]:
     for key, kws in keywords.items():
         if any(kw in text_lower for kw in kws):
             matched.append(key)
-    
+
     if matched:
         logger.info(f"Detected courses: {matched}")
     return matched
 
 
-def resolve_courses_for_faq(user_query: str, course_interest: str | None) -> list[str]:
+def resolve_courses_for_faq(user_query: str, course_interest: str | None) -> list:
     """
     Priority 1: course already selected during questioning phase.
     Priority 2: course detected from the query text.

@@ -7,16 +7,24 @@
         "website": "https://gradious.com"
     },
     "platform": {
-        "lms": "Proprietary LMS with video lectures, quizzes, and assignmentsr",
+        "lms": "Proprietary LMS with video lectures, quizzes, and assignments",
         "mentors": "Industry-experienced mentors for 1:1 doubt clearing",
         "doubt_sessions": "Live doubt clearing sessions twice a week",
         "standups": "Daily standups for self-paced learners to stay on track",
-        "certificate": "Course completion certificate"
+        "certificate": "Course completion certificate",
+        "learning_approach": "Practice-first learning — learn by doing, not just watching videos",
+        "features": [
+            "Hands-on coding exercises embedded in lessons",
+            "Project-based learning with real-world assignments",
+            "Progress tracking and performance dashboards",
+            "Recorded sessions available for revision",
+            "Mobile-friendly access"
+        ]
     },
     "placements": {
         "assistance": true,
         "avg_package": "4–8 LPA",
-        "top_hiring_companies": [
+        "partnered_companies": [
             "accenture",
             "synchrony",
             "kore.ai",

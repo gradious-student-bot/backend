@@ -19,6 +19,15 @@ class LeadState(TypedDict):
     current_question_key: str
     answered_fields: dict
     human_agent_requested: bool
+    greeting_step: int  # 0 = not started, 1 = identity confirmed, 2 = timing confirmed, 3 = interest confirmed → proceed to Q flow
+    question_retry_counts: dict  # field name → number of times asked (Task 4)
+
+    # Entity switch detection (Task 1)
+    pending_switch: Optional[dict]  # {"field": "<field_name>", "new_value": "<new_value>"}
+
+    # Multi-intent handling (Task 2)
+    pending_sub_query: Optional[str]
+    pending_next_question_text: Optional[str]
 
     # Collected Lead Data
     course_interest: Optional[str]       # "ai_batch" | "fullstack_batch" | "dsa_batch"
@@ -28,7 +37,6 @@ class LeadState(TypedDict):
     department: Optional[str]
     training_mode: Optional[str]         # "online" | "offline"
     class_type: Optional[str]            # "self_paced" | "live"
-    budget_range: Optional[str]
     referral_source: Optional[str]
     interested: Optional[bool]
     join_date: Optional[str]
