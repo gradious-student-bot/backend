@@ -40,12 +40,9 @@ import os
 import aiohttp  
 from dotenv import load_dotenv
 from livekit.agents import JobContext, WorkerOptions, cli, AutoSubscribe, AgentSession, Agent, llm
-from livekit.plugins import azure, openai, silero 
+from livekit.plugins import azure, openai, silero
+from config import LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
 load_dotenv()
-
-LIVEKIT_URL = os.getenv("LIVEKIT_URL")
-LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
-LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
 def sanitize_for_tts(text: str) -> str:
     if not isinstance(text, str):

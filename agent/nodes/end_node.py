@@ -2,9 +2,10 @@ import json
 import logging
 from openai import OpenAI
 from agent.state import LeadState
+from config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
-client = OpenAI()
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 END_SYSTEM_PROMPT = """\
 ## PERSONA

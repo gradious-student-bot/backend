@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openpyxl import load_workbook
 load_dotenv()
 
-CWD_PATH = r"C:\Users\chand\Desktop\Claude_agent_bot\backend"
+CWD_PATH = r"C:\Users\vishw\Gradious Files\Gradious bot\backend"
 
 SYSTEM_PROMPT = f"""
 # Gradious Lead Agent — Claude Code Task Prompt
@@ -383,7 +383,7 @@ from datetime import datetime
 import os
 
 class CostTracker:
-    def __init__(self, model_name="claude-haiku-4.5"):
+    def __init__(self, model_name="claude-sonnet-4.6"):
         self.model = model_name
         self.tool_calls = 0
         self.input_tokens = 0
@@ -391,8 +391,8 @@ class CostTracker:
         self.steps = []
         self.start_time = datetime.now()
 
-        self.input_cost_per_token = 1 / 1_000_000
-        self.output_cost_per_token = 5 / 1_000_000
+        self.input_cost_per_token = 3 / 1_000_000
+        self.output_cost_per_token = 15 / 1_000_000
 
     def log_tool_call(self):
         self.tool_calls += 1
@@ -493,7 +493,7 @@ class CostTracker:
         print("✅ Excel appended successfully")
 
 async def main():
-    tracker = CostTracker("claude-haiku-4.5")
+    tracker = CostTracker("claude-sonnet-4.6")
 
     async for message in query(
         prompt=SYSTEM_PROMPT,
@@ -502,7 +502,7 @@ async def main():
             model="us.anthropic.claude-sonnet-4-6",
             allowed_tools=["Read", "Edit", "Bash"],
             permission_mode="acceptEdits",
-            cwd = r"C:\Users\chand\Desktop\Claude_agent_bot\backend"
+            cwd = r"C:\Users\vishw\Gradious Files\Gradious bot\backend"
         )
     ):
 
