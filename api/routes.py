@@ -79,7 +79,7 @@ async def agent_turn(req: TurnRequest):
         logger.warning(f"[Routes] Attempted turn on ended call for session {req.session_id}")
         raise HTTPException(status_code=400, detail="Call has already ended.")
 
-    logger.info(f"[Routes] User input for {state['lead_id']}: {req.user_text[:50]}...")
+    logger.info(f"[Routes] User input for {state['lead_id']}: [{req.user_text[:50]}]")
     state["messages"].append(HumanMessage(content=req.user_text))
 
     result = agent_graph.invoke(state)

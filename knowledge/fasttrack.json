@@ -1,46 +1,74 @@
 {
     "company": {
         "name": "Gradious",
-        "office_location": "Lotus Heights, Madhapur, Hyderabad, Telangana - 500033",
-        "office_timings": "Mon-Fri, 10 AM - 7 PM",
+        "office_location": "Hyderabad, Telangana",
+        "office_timings": "Mon–Sat, 10 AM – 7 PM",
         "contact_email": "admissions@gradious.com",
         "website": "https://gradious.com"
     },
     "platform": {
-        "lms": "Proprietary LMS with video lectures, quizzes, and assignments",
-        "mentors": "Industry-experienced mentors for 1:1 doubt clearing",
+        "name": "Leap",
+        "lms": "Proprietary learning portal called Leap — built for practice-first, project-based learning",
+        "mentors": {
+            "description": "Industry professionals with hands-on experience at top tech and financial companies",
+            "background_companies": ["Microsoft", "JP Morgan", "Gradious AI", "Kore.ai", "Amazon", "Goldman Sachs"],
+            "what_they_do": [
+                "1:1 doubt clearing sessions",
+                "Code reviews and project feedback",
+                "Mock interview preparation",
+                "Career guidance and resume building",
+                "Real-world problem-solving walkthroughs"
+            ],
+            "offline_note": "Students in offline mode get direct in-person access to mentors and industry professionals at the Gradious office"
+        },
         "doubt_sessions": "Live doubt clearing sessions twice a week",
         "standups": "Daily standups for self-paced learners to stay on track",
         "certificate": "Course completion certificate",
-        "learning_approach": "Practice-first learning — learn by doing, not just watching videos",
+        "learning_approach": "Practice-first learning — learn by doing with hands-on exercises, not just watching videos",
         "features": [
-            "Hands-on coding exercises embedded in lessons",
+            "Hands-on coding exercises embedded in every lesson",
             "Project-based learning with real-world assignments",
             "Progress tracking and performance dashboards",
             "Recorded sessions available for revision",
             "Mobile-friendly access"
         ]
     },
+    "training_modes": {
+        "online": {
+            "description": "Student takes the course remotely from anywhere",
+            "mentor_access": "Online mentorship via scheduled sessions and chat"
+        },
+        "offline": {
+            "description": "Student comes to the Gradious office in Hyderabad for in-person training",
+            "mentor_access": "Direct in-person access to mentors and industry professionals at the office"
+        },
+        "note": "Online and offline are independent of self-paced and live-classes. A student can choose any combination — e.g. offline + self-paced, or online + live classes."
+    },
+    "class_types": {
+        "self_paced": {
+            "description": "Pre-recorded video lessons — learn at your own pace, anytime",
+            "includes": ["Recorded video lectures", "Daily standups to stay on track", "Assignments and projects", "Doubt clearing sessions"]
+        },
+        "live_classes": {
+            "description": "Scheduled live sessions with an instructor",
+            "includes": ["Live interactive classes", "Real-time doubt resolution", "Assignments and projects", "Session recordings for revision"]
+        }
+    },
     "placements": {
         "assistance": true,
-        "avg_package": "4-8 LPA",
-        "partnered_companies": [
-            "accenture",
-            "synchrony",
-            "kore.ai",
-            "infosys",
-            "capegemini",
-            "cognizant"
-        ],
-        "placement_rate": "85% within 3 months of completion"
+        "avg_package": "4–8 LPA",
+        "partnered_companies": ["Microsoft", "JP Morgan", "Kore.ai", "Synchrony", "Accenture", "Persistent Systems", "Mphasis", "Hexaware"],
+        "placement_rate": "85% within 3 months of completion",
+        "placement_description": "We have partnered with product-based and tech-first companies who actively hire trained candidates from Gradious. Our placement support includes resume prep, mock interviews, and direct referrals to our hiring partners."
     },
     "courses": {
         "fullstack_batch": {
-            "name": "Fullstack Track",
-            "modes": [
-                "self-paced",
-                "live"
-            ],
+            "name": "Full Stack + Gen AI",
+            "display_name": "Full Stack + Gen AI Track",
+            "eligibility": "Final year students and passed outs",
+            "modes": ["online", "offline"],
+            "class_types": ["self-paced", "live-classes"],
+            "platform_access": "1 year",
             "course_overview": {
                 "what_you_will_learn": [
                     "Programming fundamentals and problem solving",
@@ -49,11 +77,14 @@
                     "Full stack application development (3-tier architecture)",
                     "System design basics",
                     "Real-world industry project",
-                    "DSA for interview preparation"
-                ]
+                    "DSA for interview preparation",
+                    "Generative AI tools and how they work",
+                    "LLMs and prompt engineering for developers",
+                    "How Gen AI improves development speed and quality",
+                    "Real-world Gen AI use cases and limitations"
+                ],
+                "gen_ai_note": "The Full Stack course now includes a Gen AI module where students learn the latest AI tools, how LLMs work, and how to use Gen AI to build better software faster."
             },
-            "platform_access": "1 year",
-            "eligibility": "Final year students & Passed outs",
             "self": {
                 "course_duration": "24 weeks",
                 "fee_structure": "₹20,000"
@@ -65,10 +96,11 @@
         },
         "ai_batch": {
             "name": "AI Stack (ML + Generative AI)",
-            "modes": [
-                "self-paced",
-                "live"
-            ],
+            "display_name": "AI Stack Track",
+            "eligibility": "Final year students and passed outs",
+            "modes": ["online", "offline"],
+            "class_types": ["self-paced", "live-classes"],
+            "platform_access": "1 year",
             "course_overview": {
                 "what_you_will_learn": [
                     "Python programming and data foundations",
@@ -80,8 +112,6 @@
                     "Model deployment and real-world applications"
                 ]
             },
-            "platform_access": "1 year",
-            "eligibility": "Final year students & Passed outs",
             "self": {
                 "course_duration": "24 weeks",
                 "fee_structure": "₹20,000"
@@ -92,11 +122,11 @@
             }
         },
         "dsa_batch": {
-            "name": "Gradious Data Structures and Algorithms",
-            "modes": [
-                "self-paced",
-                "live"
-            ],
+            "name": "Gradious DSA",
+            "display_name": "Data Structures and Algorithms Track",
+            "eligibility": "Final year students and passed outs",
+            "modes": ["online", "offline"],
+            "class_types": ["self-paced", "live-classes"],
             "course_overview": {
                 "what_you_will_learn": [
                     "Program Flow and Introduction",
@@ -111,15 +141,67 @@
                     "Dynamic Programming"
                 ]
             },
-            "course_duration": "4 weeks",
-            "eligibility": "Final year students & Passed outs",
             "self": {
+                "course_duration": "4 weeks",
                 "platform_access": "1 year",
                 "fee_structure": "₹5,000"
             },
             "live": {
-                "fee_structure": "₹6,000",
-                "platform_access": "6 months"
+                "course_duration": "4 weeks",
+                "platform_access": "6 months",
+                "fee_structure": "₹6,000"
+            }
+        },
+        "campus_fullstack": {
+            "name": "Gradious Campus — Full Stack + Gen AI",
+            "display_name": "Campus Full Stack + Gen AI",
+            "eligibility": "1st to 3rd year students only",
+            "modes": ["online"],
+            "class_types": ["self-paced"],
+            "platform_access": "3 years",
+            "campus_note": "This is the Gradious Campus program — designed for students in their 1st, 2nd, or 3rd year so they can build skills early and be placement-ready by the time they graduate.",
+            "course_overview": {
+                "what_you_will_learn": [
+                    "Programming fundamentals and problem solving",
+                    "Frontend development with HTML, CSS, JavaScript, and React JS",
+                    "Backend development using Node.js and MySQL databases",
+                    "Full stack application development (3-tier architecture)",
+                    "System design basics",
+                    "Real-world industry project",
+                    "DSA for interview preparation",
+                    "Generative AI tools and how they work",
+                    "LLMs and prompt engineering for developers",
+                    "How Gen AI improves development speed and quality",
+                    "Real-world Gen AI use cases and limitations"
+                ]
+            },
+            "self": {
+                "course_duration": "3 years",
+                "fee_structure": "₹40,000"
+            }
+        },
+        "campus_ai": {
+            "name": "Gradious Campus — ML + Gen AI",
+            "display_name": "Campus ML + Gen AI",
+            "eligibility": "1st to 3rd year students only",
+            "modes": ["online"],
+            "class_types": ["self-paced"],
+            "platform_access": "3 years",
+            "campus_note": "This is the Gradious Campus program — designed for students in their 1st, 2nd, or 3rd year so they can build skills early and be placement-ready by the time they graduate.",
+            "course_overview": {
+                "what_you_will_learn": [
+                    "Python programming and data foundations",
+                    "Machine Learning algorithms and model building",
+                    "Deep Learning and NLP concepts",
+                    "Generative AI, LLMs, and prompt engineering",
+                    "Retrieval Augmented Generation (RAG) and AI agents",
+                    "End-to-end AI project development",
+                    "Model deployment and real-world applications"
+                ]
+            },
+            "self": {
+                "course_duration": "3 years",
+                "fee_structure": "₹40,000"
             }
         }
     }

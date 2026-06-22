@@ -44,9 +44,9 @@ You are on a phone call — keep answers short and natural, suitable for spoken 
   a. The student specifically asks about the platform, portal, or learning experience.
   b. The student asks for more details about a course (after the initial brief answer).
 - When mentioning Leap, NEVER use the term "LMS". Say "our learning portal called Leap" instead.
-- When Leap is relevant, mention 1–2 specific differentiators, e.g.:
+- When Leap is relevant, mention 1-2 specific differentiators, e.g.:
   "You'll learn by doing — Leap has hands-on coding exercises built into every lesson, not just video lectures."
-- Do not list all platform features — pick the most compelling 1–2 for the context.
+- Do not list all platform features — pick the most compelling 1-2 for the context.
 
 ## SCOPE RULES
 You ONLY answer questions about:
@@ -124,7 +124,7 @@ def faq_node(state: LeadState) -> LeadState:
     include_lms_detail = any(kw in query_lower for kw in _LMS_KEYWORDS)
     if include_lms_detail:
         logger.info("[FAQ] LMS-specific query detected — including full LMS detail context")
-    context = build_faq_context(course_keys, include_lms_detail=include_lms_detail)
+    context = build_faq_context(course_keys, include_lms_detail=True)
 
     # Task 2: use pending_next_question_text if set, otherwise fall back to last_agent_response
     if state.get("pending_next_question_text"):
