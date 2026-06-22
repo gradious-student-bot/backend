@@ -4,16 +4,16 @@ from dotenv import load_dotenv
 from openpyxl import load_workbook
 load_dotenv()
 
-CWD_PATH = r"C:\Users\vishw\Gradious Files\Gradious bot\backend"
+CWD_PATH = r"C:\Users\vishw\Gradious Files\Gradious bot\backend_claude_run"
 
-SYSTEM_PROMPT = f"""
-# Gradious Lead Agent — Claude Code Task Prompt
+SYSTEM_PROMPT = """
+# Gradious Lead Agent — Claude Code Task Prompt (Batch 3)
 
 ## Project Overview
 This is a Python-based voice agent for lead conversion at Gradious, a tech training institute.
 The agent makes outbound calls to student leads, collects qualification data via a questionnaire,
 answers course-related queries using a knowledge base, and writes results to Airtable.
-Built with FastAPI, LangGraph, and OpenAI.
+Built with FastAPI, LangGraph, and OpenAI (gpt-4.1-mini).
 
 ## File Structure
 .
@@ -40,7 +40,7 @@ Built with FastAPI, LangGraph, and OpenAI.
 │       └── repeat_prompt.py          # Repeat node system prompt — instructs LLM to rephrase, not replay verbatim
 │
 ├── api/
-│   └── routes.py                     # FastAPI routes — POST /agent/init, POST /agent/turn, WS /ws/agent/{{session_id}}
+│   └── routes.py                     # FastAPI routes — POST /agent/init, POST /agent/turn, WS /ws/agent/{session_id}
 │
 ├── knowledge/
 │   ├── fasttrack.json                # Course knowledge base — courses, fees, platform (Leap LMS), placements, company info
@@ -59,321 +59,624 @@ Built with FastAPI, LangGraph, and OpenAI.
 
 ---
 
-## Tasks
+## General Principles (Apply to ALL tasks)
 
-### Task 1 — Entity Switching Confirmation (agent/nodes/questionnaire_node.py)
-
-**Problem:** When a user changes a previously confirmed answer — such as switching their selected course from DSA to Full Stack, or changing training mode from online to offline — the agent silently overwrites the stored value without confirming. This can cause incorrect data.
-
-**What to implement:**
-
-The switchable/confirmable entities are:
-- `course_interest` (e.g. "Actually, I want Full Stack, not DSA")
-- `training_mode` (e.g. "Wait, I prefer offline actually")
-
-In the LLM field extraction step (the `EXTRACT_SYSTEM_PROMPT` call inside `questionnaire_node`), add detection for when the extracted value for `course_interest` or `training_mode` **differs from the already-stored value** in `answered_fields`.
-
-When a conflict is detected:
-1. Do NOT overwrite the stored value immediately.
-2. Add a new field to `LeadState` called `pending_switch` (type: `dict | None`) that stores `{{"field": "<field_name>", "new_value": "<new_value>"}}`.
-3. Set `state["current_question_key"] = "confirm_switch"` and generate an LLM response asking the user to confirm the switch.
-   Example style: "You had selected [old value] earlier. Did you want to switch to [new value]?"
-4. Add handling in `questionnaire_node` for `current_question_key == "confirm_switch"`:
-   - If user confirms (affirmative): apply the new value from `pending_switch`, clear `pending_switch`, resume normal flow by calling `_get_next_field()`.
-   - If user denies: discard `pending_switch`, resume normal flow keeping the old value.
-5. Add `pending_switch: Optional[dict]` to `LeadState` in `agent/state.py`.
+- All LLM calls that produce a final spoken response to the user must use `temperature=0.85`.
+  LLM calls that classify, extract, or route (intent_router, field extraction) must keep `temperature=0`.
+- All new system prompts must include the `## PERSONA` block (copy from faq_node.py's existing PERSONA section).
+- All LLM calls use `response_format={"type": "json_object"}` and the `openai` package directly.
+- Never hardcode spoken response strings — every message the user hears must come from an LLM call.
+- Do not modify files not explicitly mentioned in each task's scope.
 
 ---
 
-### Task 2 — Multi-Intent: Answer + Query in Same Utterance (agent/nodes/intent_router.py, agent/nodes/questionnaire_node.py, agent/nodes/faq_node.py)
+## Task 1 — Increase Temperature for Final Response LLM Calls (agent/nodes/questionnaire_node.py, agent/nodes/faq_node.py, agent/nodes/end_node.py, agent/nodes/repeat_node.py)
 
-**Problem:** When a student says something like "Yes, also tell me about the Full Stack course", the current system routes to either `answer` or `query` — it cannot handle both in the same turn. The answer gets lost or the query goes unanswered.
+**Problem:** Responses feel robotic because LLM calls generating spoken output use low temperature (0.2-0.4), making them deterministic and flat.
+
+**What to change:**
+
+Go through every `client.chat.completions.create(...)` call in the following files and apply these temperature rules:
+
+| File | Call Purpose | New Temperature |
+|---|---|---|
+| `questionnaire_node.py` | Greeting / identity / timing / interest prompts | 0.85 |
+| `questionnaire_node.py` | Next question generation | 0.85 |
+| `questionnaire_node.py` | Wrap-up / closing message | 0.85 |
+| `questionnaire_node.py` | Human agent scheduling confirmation | 0.85 |
+| `questionnaire_node.py` | De-escalation / confused / irrelevant / rude responses | 0.85 |
+| `questionnaire_node.py` | Field extraction (EXTRACT_SYSTEM_PROMPT) | 0.0 (classification — do not change) |
+| `questionnaire_node.py` | Entity switch confirmation | 0.85 |
+| `faq_node.py` | FAQ answer generation | 0.85 |
+| `end_node.py` | Closing message generation | 0.85 |
+| `repeat_node.py` | Rephrase generation | 0.85 |
+
+Do not change temperature for intent_router.py or any other classification/extraction call.
+
+---
+
+## Task 2 — Small Talk Handling at Greeting Step (agent/nodes/questionnaire_node.py, agent/nodes/intent_router.py)
+
+**Problem:** When the agent asks "Am I speaking with [Name]?" and the user says "Hi" or asks "What are you?", the agent doesn't handle this gracefully — it either misclassifies or ignores the greeting.
 
 **What to implement:**
 
 **In `intent_router.py`:**
-- Add a new intent: `"answer_and_query"` — returned when the student's message contains BOTH a clear answer to the pending question AND a separate question or request for information.
-- Update the intent classification system prompt to describe this intent clearly with examples.
-- Update the JSON output format to include a `"sub_query"` field: the isolated question part of the message (e.g. `"Tell me about the Full Stack course"`). This is `null` for all other intents.
-- Update the JSON output schema to:
-  ```json
-  {{
-    "intent": "...",
-    "reasoning": "...",
-    "sub_query": "<isolated query string or null>"
-  }}
+- Add a new intent `"small_talk"` to the intent classification system prompt with this description:
   ```
-- Store `sub_query` in state: add `pending_sub_query: Optional[str]` to `LeadState` in `agent/state.py`.
-
-**In `agent/graph.py`:**
-- Add routing for `"answer_and_query"` → route to `"questionnaire"` node (it will handle extraction first, then hand off to FAQ).
+  "small_talk": Return "small_talk" if the user's message is a greeting (Hi, Hello, Hey),
+  a pleasantry (How are you?), or a meta-question about the agent itself
+  (What are you?, Who am I speaking to?, Are you a bot?, Are you a real person?).
+  This also applies when the user says "Hi" or similar instead of answering the current question.
+  ```
+- `small_talk` should be valid at any point in the conversation, not just at the greeting step.
+- Add `"small_talk"` to the intent enum in the OUTPUT FORMAT JSON.
+- Add a routing rule: `"small_talk"` → route to `"questionnaire"` (the questionnaire node will handle the response inline).
 
 **In `questionnaire_node.py`:**
-- At the top of `questionnaire_node`, detect if `intent == "answer_and_query"`.
-- If so:
-  1. Run the field extraction step on the answer portion of the user's message (same extraction LLM call as normal).
-  2. Store extracted fields via `_apply_extracted()`.
-  3. Determine the next question using `_get_next_field()`.
-  4. Do NOT generate the next question yet. Instead, store it in `state["pending_next_question_text"]` (add this field to `LeadState` as `Optional[str]`).
-  5. Pass control to `faq_node` by setting `state["next_node"] = "faq_after_answer"` and returning.
-
-**In `agent/graph.py`:**
-- Add a new node reference `"faq_after_answer"` that points to the same `faq_node` function.
-- Add edge: `"questionnaire"` → conditional → `"faq_after_answer"` when `state["next_node"] == "faq_after_answer"`.
-
-**In `faq_node.py`:**
-- Check if `state.get("pending_sub_query")` is set. If so, use that as the `user_query` instead of the last message content.
-- Check if `state.get("pending_next_question_text")` is set. If so, use that as the `pending_question` injected at the end of the FAQ response (instead of `last_agent_response`).
-- After generating the response, clear both `pending_sub_query` and `pending_next_question_text` from state.
+- At the top of `questionnaire_node`, add a check: if `intent == "small_talk"`:
+  1. Call a dedicated LLM prompt `SMALL_TALK_SYSTEM_PROMPT` to generate a spoken response.
+  2. The prompt should instruct the LLM:
+     - Greet the user back warmly if they said Hi/Hello.
+     - If user asks "What are you?" or "Are you a bot?", be honest: say it's an AI assistant from Gradious, here to help with course information and collect a few details.
+     - After the small talk response, naturally re-ask the current pending question (inject `state["last_agent_response"]` as the pending question).
+  3. The JSON output format: `{"response": "..."}`.
+  4. Set `state["last_agent_response"]` and append to `state["messages"]`, then return — do not proceed to field extraction or next question generation.
 
 ---
 
-### Task 3 — Knowledge Base Fixes (knowledge/fasttrack.json, knowledge/context_builders.py)
+## Task 3 — Ask First Question Immediately After Identity Confirmation (agent/nodes/questionnaire_node.py)
 
-**What to fix in `fasttrack.json`:**
-
-1. Fix the typo in `platform.lms`: remove the stray `r` at the end — `"Proprietary LMS with video lectures, quizzes, and assignmentsr"` should be `"Proprietary LMS with video lectures, quizzes, and assignments"`.
-
-2. Add richer LMS platform details under `"platform"` to better distinguish Gradious from competitors. Add these new fields:
-   ```json
-   "learning_approach": "Practice-first learning — learn by doing, not just watching videos",
-   "features": [
-     "Hands-on coding exercises embedded in lessons",
-     "Project-based learning with real-world assignments",
-     "Progress tracking and performance dashboards",
-     "Recorded sessions available for revision",
-     "Mobile-friendly access"
-   ]
-   ```
-
-3. Under `"placements"`, rename `"top_hiring_companies"` to `"partnered_companies"` for clarity — update all references in `context_builders.py` accordingly.
-
-**What to fix in `context_builders.py`:**
-
-1. Update `build_placement_context()` to use `partnered_companies` instead of `top_hiring_companies`.
-2. Add a new context builder function `build_lms_detail_context(kb: dict) -> str` that returns a paragraph about the Leap platform's learning approach and features — used when the user specifically asks about the platform or requests more details.
-3. Update `build_faq_context()` to accept an optional `include_lms_detail: bool = False` parameter. Only include the full LMS detail block when this is `True`. The base context should only include a one-line platform mention.
-
----
-
-### Task 4 — Prevent Question Looping (agent/nodes/questionnaire_node.py)
-
-**Problem:** In some scenarios, the agent asks the same question multiple times in a row — the field extraction fails silently and `_get_next_field()` returns the same field again, causing an infinite loop.
-
-**What to fix:**
-
-1. Add a new field `question_retry_counts: dict` to `LeadState` in `agent/state.py`. This is a dict mapping field name → number of times it has been asked. Default: {{}}.
-
-2. In `questionnaire_node`, after calling `_get_next_field()` to determine the next field to ask:
-   - Increment `state["question_retry_counts"][next_key]` by 1.
-   - If `question_retry_counts[next_key]` exceeds `2` (asked more than 2 times):
-     - Skip that field: mark it in `answered_fields` as `"__skipped__"` so `_get_next_field()` won't return it again.
-     - Log a warning: `logger.warning(f"[Questionnaire] Skipping field {{next_key}} after 2 retries")`.
-     - Call `_get_next_field()` again to get the actual next field.
-
-3. In the field extraction step, if the extracted value for the current question key comes back as `null` or the extraction call throws an exception, do NOT re-ask the same question immediately on the next turn. Instead log the miss and proceed to try `_get_next_field()` — the retry counter above will handle retrying it up to 2 times.
-
----
-
-### Task 5 — Out-of-Scope Query Handling (agent/nodes/faq_node.py)
-
-**Problem:** The FAQ node answers general knowledge questions that are unrelated to Gradious or its offerings (e.g. "What is Machine Learning?", "Explain React"). The agent should not function as a general knowledge bot.
+**Problem:** After the agent confirms identity and the user says yes, the agent says a transition phrase ("Thanks for your interest...") and then waits for the next user turn before asking the first question. This wastes a turn and feels unnatural.
 
 **What to implement:**
 
-In `faq_node.py`, update the `FAQ_SYSTEM_PROMPT` to include a section called `## SCOPE RULES` with the following instructions:
+In `questionnaire_node.py`, in the `confirm_timing` step (Step 2 of greeting, reached after identity confirmed):
 
-## SCOPE RULES
-You ONLY answer questions about:
-- Gradious courses (Full Stack, AI/ML, DSA): content, structure, syllabus, duration, fees, modes
-- Gradious platform (Leap LMS): how it works, features, access
-- Gradious placements: companies, process, rates, packages
-- Gradious company info: location, timings, contact
-- Enrollment process and next steps
+When generating the transition response after identity is confirmed (the `POST_CONFIRM_SYSTEM_PROMPT` call), modify the system prompt instruction to combine the transition phrase AND the first question in a single response.
 
-If the student asks a general knowledge question unrelated to Gradious
-(e.g. "What is Machine Learning?", "Explain React", "What is DSA?"),
-DO NOT answer the general definition. Instead, redirect the student toward the relevant
-Gradious course naturally.
-
-Examples of redirection:
-- "What is ML?" → "We cover Machine Learning in depth in our AI Stack course — from Python basics all the way to Generative AI. Would you like to know more about that course?"
-- "What is React?" → "React is one of the core topics in our Full Stack course. Want me to walk you through what the Full Stack program covers?"
-- "What is DSA?" → "DSA is a focused program we offer — great for interview preparation. Want me to tell you more about it?"
-
-Always tie the answer back to a Gradious offering.
-
----
-
-### Task 6 — Conversation History Context (agent/nodes/intent_router.py, agent/nodes/questionnaire_node.py, agent/nodes/faq_node.py)
-
-**Problem:** LLM calls in the nodes are made with only the current system prompt and latest user message. The LLM has no memory of prior conversation turns, causing it to ask questions already answered, lose track of context, and make poor decisions.
-
-**What to implement:**
-
-Create a helper function in `agent/nodes/questionnaire_node.py` (and import it in other nodes):
-
-def get_recent_messages(state: LeadState, n: int = 10) -> list[dict]:
-    Returns the last n messages from state["messages"] formatted as OpenAI
-    chat message dicts: {{"role": "user" | "assistant", "content": "..."}}
-    Skips the very last message (which is the current user input, already handled separately).
-
-- Map `HumanMessage` → `{{"role": "user", "content": ...}}`
-- Map `AIMessage` → `{{"role": "assistant", "content": ...}}`
-- Return the last `n` messages excluding the most recent one (current turn).
-
-**Apply this in the following LLM calls:**
-
-1. **`questionnaire_node.py` — field extraction call:**
-   Insert `get_recent_messages(state, 10)` between the system prompt message and the final user message in the messages list.
-
-2. **`questionnaire_node.py` — next question generation call:**
-   Insert `get_recent_messages(state, 6)` — a shorter window is enough here.
-
-3. **`questionnaire_node.py` — confused/rude/irrelevant branch calls:**
-   Insert `get_recent_messages(state, 6)`.
-
-4. **`faq_node.py` — FAQ answer generation call:**
-   Insert `get_recent_messages(state, 10)` before the final user message.
-
-5. **`intent_router.py` — intent classification call:**
-   Insert `get_recent_messages(state, 6)` — enough context to disambiguate follow-up answers from new queries.
-
-The final message list structure for each call should always be:
+Update `POST_CONFIRM_SYSTEM_PROMPT` to say:
 ```
-[system_prompt, ...recent_messages, current_user_message]
+After the warm introduction sentence, immediately ask the first question of the questionnaire
+in the same response. The first question is about which course the student is interested in.
+Do not wait — ask it right away in a natural, flowing way.
+Example style: "Great to connect with you, [Name]. I'm calling from Gradious — we noticed you showed
+interest in our courses and wanted to help. So, which course are you looking at — Full Stack or AI?"
+(This is style inspiration only — LLM should generate its own version.)
+```
+
+The `current_question_key` should be set to `"course_interest"` immediately after this response so the next user turn is correctly processed as answering the course question.
+
+---
+
+## Task 4 — Live Batch Start Date Handling (agent/nodes/faq_node.py, knowledge/fasttrack.json)
+
+**What to implement:**
+
+**In `knowledge/fasttrack.json`:**
+Add a `"batch_schedule"` field under each course that has live classes (`fullstack_batch`, `ai_batch`, `dsa_batch`):
+```json
+"batch_schedule": {
+  "live": "New batches start every 2nd week of the month",
+  "self_paced": "Start anytime — self-paced courses have no fixed batch date"
+}
+```
+Also add a top-level `"admissions"` block in the JSON:
+```json
+"admissions": {
+  "batch_frequency": "New live batches start every 2nd week of the month",
+  "enrollment_process": "Contact our admissions team or schedule a call with an expert for exact upcoming batch dates and seat availability."
+}
+```
+
+**In `knowledge/context_builders.py`:**
+Update `build_complete_course_context()` to include `batch_schedule` in the rendered context block when present:
+```
+BATCH SCHEDULE
+Live Classes     : New batches start every 2nd week of the month
+Self-Paced       : Start anytime — no fixed batch date
+```
+
+**In `agent/nodes/faq_node.py` — `FAQ_SYSTEM_PROMPT`:**
+Add a section `## BATCH DATE RULES`:
+```
+## BATCH DATE RULES
+- If the student asks about when a batch starts or live class dates:
+  Say: "Live batches start every 2nd week of the month."
+- Do NOT give a specific calendar date — you don't have that information.
+- Follow up by offering to connect them with an admissions expert for exact dates and seat availability.
+- This should naturally flow into offering to schedule a callback: "Would you like me to have
+  our admissions expert give you a call with the exact upcoming dates?"
 ```
 
 ---
 
-### Task 7 — Remove Budget Question (agent/nodes/questionnaire_node.py, agent/state.py)
+## Task 5 — Remove Examples from Academic Detail Questions (agent/nodes/questionnaire_node.py)
 
-**What to change:**
-
-1. Remove `"budget_range"` from the `ALL_FIELDS` dict in `questionnaire_node.py`.
-2. Remove `"budget_range"` from the ordered field list inside `_get_next_field()`.
-3. Remove `budget_range: Optional[str]` from `LeadState` in `agent/state.py`.
-4. Remove `"budget_range"` from the `_apply_extracted()` mirror map.
-5. Remove `"Budget Range"` from the `lead_data` dict in `airtable_node.py`.
-6. In `faq_node.py`: if a user asks about fees or pricing, answer with the course fee from the knowledge base. If the user then tries to negotiate or asks for a discount, the agent should NOT negotiate. Instead, respond with something like: "For fee-related discussions and any special options, our admissions expert can help you out. Would you like me to schedule a call with them?" — this should route to the `human_agent` branch.
-
----
-
-### Task 8 — Multi-Step Greeting Flow (api/routes.py, agent/nodes/questionnaire_node.py, agent/state.py)
-
-**Problem:** The current greeting is a single static message. We need a 3-step greeting flow before the main questionnaire begins.
+**Problem:** When asking academic questions, the agent adds examples like "Which department are you from? Like CSE, ECE?" — this sounds scripted and adds unnecessary words on a phone call.
 
 **What to implement:**
 
-Add a `greeting_step` field to `LeadState` in `agent/state.py`:
+In `questionnaire_node.py`, in `NEXT_QUESTION_SYSTEM_PROMPT`, add an explicit instruction:
+```
+## QUESTION STYLE RULES
+- When asking about academic details (department, year, passout year), do NOT give examples.
+  Ask the question plainly. Wrong: "Which branch are you from? Like CSE, IT, or ECE?"
+  Right: "Which branch are you from?"
+- Exception: when asking about which course the student is interested in, you MAY mention
+  the course names (Full Stack + Gen AI, AI Stack) since these are Gradious-specific and
+  the student may not know them otherwise.
+- Keep every question to one sentence where possible.
+```
+
+---
+
+## Task 6 — Wrong Person Flow: Ask for Correct Name (agent/nodes/questionnaire_node.py, agent/state.py)
+
+**Problem:** When the agent asks "Am I speaking with [Name]?" and the user says "No" or "Wrong number", the current logic either loops (re-asks the same identity question) or ends the call. Instead, it should apologize, ask for the correct name, store it, and continue normally.
+
+**What to implement:**
+
+**In `agent/state.py`:**
+Add a new field:
 ```python
-greeting_step: int  # 0 = not started, 1 = identity confirmed, 2 = timing confirmed, 3 = interest confirmed → proceed to Q flow
+corrected_name: Optional[str]   # Set when the lead's name is corrected during identity confirmation
 ```
 
-In `api/routes.py`, `_init_state()`:
-- Set `greeting_step = 0` and `current_question_key = "confirm_identity"`.
-- The initial greeting (sent immediately on call start) should be Step 1: an LLM-generated message asking "Am I speaking with {{name}}?". This already exists — keep it.
+**In `questionnaire_node.py` — `confirm_identity` handling:**
+Currently, when user confirms identity → proceed to `confirm_timing`. When user denies → currently undefined/looping.
 
-In `questionnaire_node.py`, handle the greeting steps as a state machine before the main Q flow:
+Add a new `current_question_key` value: `"ask_corrected_name"`.
 
-**Step 1 — `confirm_identity` (already exists):**
-- If user confirms → generate Step 2 response (LLM): introduce as calling from Gradious, ask "Is this a good time to speak?"
-- Set `greeting_step = 1`, `current_question_key = "confirm_timing"`.
+When processing `confirm_identity`:
+- If user says yes/affirmative → proceed normally to `confirm_timing` (existing logic).
+- If user says no/negative (detect via a simple LLM extraction call asking "did the user confirm or deny identity? Return: `{"confirmed": true/false}`"):
+  1. Set `current_question_key = "ask_corrected_name"`.
+  2. Generate an LLM response using a new `ASK_CORRECTED_NAME_PROMPT`:
+     ```
+     The person on the call is not the person we expected. Apologize briefly and naturally,
+     then ask for their name. Keep it short and warm.
+     Example style: "Oh, I'm sorry about that! Could I get your name please?"
+     (Style inspiration only — LLM generates its own version.)
+     ```
+  3. Set response, append to messages, return.
 
-**Step 2 — `confirm_timing` (new):**
-- If user says it's a good time (affirmative) → generate Step 3 response (LLM): briefly mention the student showed interest in courses, ask "Would you like to know more about our programs?"
-- Set `greeting_step = 2`, `current_question_key = "confirm_interest"`.
-- If user says it's NOT a good time → ask for a callback time, set `human_agent_requested = True`, proceed to callback scheduling, end call gracefully.
-
-**Step 3 — `confirm_interest` (new):**
-- If user says yes → generate brief LLM transition ("Great, let me get some details from you") → set `greeting_step = 3`, `current_question_key = "course_interest"`, proceed to normal questionnaire flow.
-- If user says no → route to `end_node` with `not_interested` disposition.
-
-All 3 step responses must be LLM-generated using `_llm_json()`. Write dedicated system prompts for Step 2 and Step 3 inline in `questionnaire_node.py` (similar to how `POST_CONFIRM_SYSTEM_PROMPT` is defined).
-
----
-
-### Task 9 — LMS Mention Fix in FAQ (agent/nodes/faq_node.py, knowledge/context_builders.py, knowledge/fasttrack.json)
-
-**Problem:** The FAQ node mentions the LMS platform (Leap) in almost every response, even when it's irrelevant. Also, users unfamiliar with "LMS" need friendlier language.
-
-**What to change:**
-
-1. **`faq_node.py` — `FAQ_SYSTEM_PROMPT`:**
-   Replace the current LMS mention instruction with:
-   ```
-   ## LMS MENTION RULES
-   - Do NOT mention the Leap platform in every response.
-   - Only mention Leap when:
-     a. The student specifically asks about the platform, portal, or learning experience.
-     b. The student asks for more details about a course (after the initial brief answer).
-   - When mentioning Leap, NEVER use the term "LMS". Say "our learning portal called Leap" instead.
-   - When Leap is relevant, mention 1–2 specific differentiators, e.g.:
-     "You'll learn by doing — Leap has hands-on coding exercises built into every lesson, not just video lectures."
-   - Do not list all platform features — pick the most compelling 1–2 for the context.
-   ```
-
-2. **`faq_node.py` — add a trigger for detailed LMS context:**
-   Before calling `build_faq_context()`, detect if the user query is specifically about the platform/portal/learning experience using keyword matching (words like: "platform", "portal", "leap", "lms", "learning experience", "how do I learn", "how does it work").
-   If detected: call `build_faq_context(course_keys, include_lms_detail=True)`.
-   Otherwise: call `build_faq_context(course_keys, include_lms_detail=False)` (default).
-
-3. **`knowledge/fasttrack.json`:**
-   Already covered in Task 3 — the `learning_approach` and `features` fields added there will power this richer context.
+When processing `ask_corrected_name`:
+- Run field extraction to pull the name from the user's reply. Store in `state["corrected_name"]`.
+- Also update `state["lead_name"]` to the corrected name so all subsequent LLM prompts use the right name.
+- Then proceed normally: set `current_question_key = "confirm_timing"` and generate the Step 2 greeting response (same `POST_CONFIRM_SYSTEM_PROMPT` flow as normal identity confirmation).
 
 ---
 
-### Task 10 — Sales Persona for Agent Responses (agent/nodes/questionnaire_node.py, agent/nodes/faq_node.py, agent/nodes/end_node.py)
+## Task 7 — Out-of-Scope: Restrict to Courses and Coaching Only (agent/nodes/faq_node.py)
 
-**Problem:** Agent responses feel robotic and transactional. They need to feel like a calm, persuasive human sales counselor who genuinely wants to help the student make the right decision.
+**Problem:** The current `## SCOPE RULES` in `FAQ_SYSTEM_PROMPT` redirects general questions toward Gradious courses, but the language is too flexible and the agent sometimes still partially answers off-scope questions.
 
-**What to change:**
+**What to change in `FAQ_SYSTEM_PROMPT` — `## SCOPE RULES`:**
 
-In every system prompt that generates a spoken response (questionnaire question generation, FAQ answer, end node closing, greeting steps), add a `## PERSONA` section with the following:
+Replace the existing section with:
+```
+## SCOPE RULES
+You can ONLY help with:
+- Gradious courses: content, syllabus, structure, duration, fees, modes, batches
+- Gradious learning platform (Leap): how it works, features
+- Gradious placements: companies, process, packages
+- Gradious company info: location, timings, contact
+- Enrollment and next steps
 
-## PERSONA
-You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
-on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
-situation and guide them toward the right course. You are never pushy, but you are
-subtly persuasive — you highlight genuine benefits, create mild urgency where appropriate,
-and always make the student feel that Gradious is the right place for their career growth.
+If the student asks ANYTHING outside this scope — general knowledge, career advice,
+coding help, definitions of technologies, other institutes, job market advice, etc. —
+do NOT answer it at all. Say clearly but warmly that you can only help with
+Gradious course and coaching information right now.
 
-Tone guidelines:
-- Calm and confident — never rushed or scripted-sounding.
-- Use natural fillers where appropriate: "Sure!", "Got it.", "Ok, so...", "Right."
-- Highlight one genuine benefit or differentiator per response when opportunity arises
-  (e.g. placement support, practice-based learning, industry mentors) — but don't overdo it.
-- If a student seems hesitant, gently acknowledge and address the hesitation before moving on.
-- Do not use corporate speak, buzzwords, or filler phrases like "Absolutely!", "Certainly!",
-  "Great question!", "Definitely!".
-- Speak in short sentences — this is a phone call, not an essay.
+Example phrasings for out-of-scope:
+- "I can only help with details about our courses and coaching programs right now.
+   Is there something specific about our courses you'd like to know?"
+- "That's a bit outside what I can help with on this call — I'm here specifically to
+   help with Gradious course and enrollment information. Want me to tell you about
+   our programs instead?"
 
-Apply this `## PERSONA` section to the following system prompts in `questionnaire_node.py`:
-- `NEXT_QUESTION_SYSTEM_PROMPT`
-- `GREETING_SYSTEM_PROMPT`
-- `POST_CONFIRM_SYSTEM_PROMPT`
-- `WRAP_UP_SYSTEM_PROMPT`
-- `HUMAN_AGENT_SYSTEM_PROMPT`
-- `HUMAN_AGENT_CONFIRM_SYSTEM_PROMPT`
-- `DE_ESCALATE_SYSTEM_PROMPT`
-- `CONFUSED_SYSTEM_PROMPT`
-- `IRRELEVANT_SYSTEM_PROMPT`
-- The new Step 2 (`confirm_timing`) and Step 3 (`confirm_interest`) prompts from Task 8.
-
-Apply it to `FAQ_SYSTEM_PROMPT` in `faq_node.py`.
-Apply it to `END_SYSTEM_PROMPT` in `end_node.py`.
+NEVER attempt to answer general knowledge questions even partially.
+Always redirect back to Gradious offerings.
+```
 
 ---
 
-## General Instructions for Claude Code
+## Task 8 — Remove Referral Source Question (agent/nodes/questionnaire_node.py, agent/state.py, agent/nodes/airtable_node.py)
 
-- Make all changes surgical — only modify what each task specifies. Do not refactor unrelated code.
-- After all changes, verify that `LeadState` in `agent/state.py` has all newly added fields.
-- After all changes, verify that `agent/graph.py` has edges/routing for all new paths introduced (e.g. `answer_and_query`, `faq_after_answer`, new greeting steps).
-- Do not remove existing logging statements — add new ones where new logic is introduced.
-- All new LLM calls must use `response_format={{"type": "json_object"}}` and the `openai` package directly (not LangChain wrappers).
-- All new system prompts must follow the `## SECTION_NAME` heading format used in existing prompts.
-- Do not change any file not mentioned in a task's scope.
+**What to remove:**
+
+1. **`questionnaire_node.py`:** Remove `"referral_source"` from `ALL_FIELDS`, from the ordered field list in `_get_next_field()`, and from `_apply_extracted()`.
+2. **`agent/state.py`:** Remove `referral_source: Optional[str]` from `LeadState`.
+3. **`airtable_node.py`:** Remove `"Referral Source": state.get("referral_source")` from `lead_data`.
+
+---
+
+## Task 9 — Update Placement Details and Remove Company Names from Responses (knowledge/fasttrack.json, knowledge/context_builders.py, agent/nodes/faq_node.py)
+
+**What to change in `knowledge/fasttrack.json`:**
+
+Update the `"placements"` object to:
+```json
+"placements": {
+  "assistance": true,
+  "highest_package": "40 LPA",
+  "avg_package": "6.4 LPA",
+  "placement_rate": "70% of eligible students placed within 3 months",
+  "partnered_companies_type": "Product-based and tech-first companies",
+  "placement_description": "We have partnered with product-based companies that actively hire trained candidates from Gradious. Our placement support includes resume preparation, mock interviews, and direct referrals to our hiring partners.",
+  "for_more_details": "For specific company names, active openings, and detailed placement process — our admissions expert can walk you through everything on a call."
+}
+```
+Remove the `"partnered_companies"` array entirely — company names should not be mentioned in responses.
+
+**What to change in `knowledge/context_builders.py` — `build_placement_context()`:**
+Update to render the new fields. Do not render a company names list. Output:
+```
+PLACEMENT SUPPORT
+Assistance            : Yes
+Highest Package       : 40 LPA
+Average Package       : 6.4 LPA
+Placement Rate        : 70% of eligible students placed within 3 months
+Partner Companies     : Product-based and tech-first companies
+About Placements      : We have partnered with product-based companies...
+For More Details      : For company names, openings, and placement process — schedule a call with our admissions expert.
+```
+
+**What to change in `agent/nodes/faq_node.py` — `FAQ_SYSTEM_PROMPT`:**
+Replace the existing placement instruction in `## SCOPE RULES` with:
+```
+## PLACEMENT RESPONSE RULES
+- When answering placement questions, say we partner with product-based companies.
+  Mention the packages: highest 40 LPA, average 6.4 LPA, placement rate 70%.
+- Do NOT name specific companies.
+- If the student asks for company names, specific openings, or placement process details,
+  say: "For that level of detail, our admissions expert would be the right person to speak
+  to — they can walk you through the exact companies and process. Want me to schedule a
+  quick call with them?"
+- This should set needs_human_agent: true in the response JSON.
+```
+
+---
+
+## Task 10 — Add Mentor Details to Knowledge Base (knowledge/fasttrack.json)
+
+**What to change in `knowledge/fasttrack.json`:**
+
+The `"mentors"` field under `"platform"` should already be a structured object (added in a previous batch). Ensure it exactly matches:
+```json
+"mentors": {
+  "description": "Industry professionals with hands-on experience at top tech and financial companies",
+  "background_companies": ["Microsoft", "JP Morgan", "Gradious AI", "Kore.ai"],
+  "what_they_do": [
+    "1:1 doubt clearing sessions",
+    "Code reviews and project feedback",
+    "Mock interview preparation",
+    "Career guidance and resume building",
+    "Real-world problem-solving walkthroughs"
+  ],
+  "offline_note": "Students in offline mode get direct in-person access to mentors and industry professionals at the Gradious office"
+}
+```
+If it already exists with this shape, verify the `background_companies` list matches exactly: `["Microsoft", "JP Morgan", "Gradious AI", "Kore.ai"]`. Update if different.
+
+No other file changes needed for this task — `context_builders.py` already renders this structure.
+
+---
+
+## Task 11 — Lead Scoring and Classification (agent/state.py, agent/nodes/airtable_node.py)
+
+**What to implement:**
+
+**In `agent/state.py`:**
+Add two new fields:
+```python
+lead_score: int           # Computed score 0-100
+lead_classification: str  # "Hot Lead" | "Warm Lead" | "Cold Lead"
+```
+
+**Create a new file `agent/nodes/scoring.py`:**
+```python
+'''
+Lead scoring and classification logic.
+Called by airtable_node before writing the Airtable record.
+'''
+from agent.state import LeadState
+from datetime import datetime, timezone
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def compute_lead_score(state: LeadState) -> tuple[int, str]:
+    '''
+    Computes a lead score 0-100 and returns (score, classification).
+
+    Scoring rules:
+    +20  Actively job hunting
+         (student_status == "working_professional" or "graduated") AND looking_for_job == True
+    +15  Graduated or working professional
+         (student_status in ["graduated", "working_professional"])
+    +15  Responded to call
+         (call was answered — always True if we reach this node)
+    +20  Attended counseling
+         (answered_fields has at least 4 fields filled — indicates engagement through the call)
+    +20  Interested in joining
+         (state["interested"] == True)
+    +10  Interested in joining within 30 days
+         (state["join_date"] is set AND parseable date is within 30 days from today)
+
+    Classification:
+    80-100 → "Hot Lead"
+    50-79  → "Warm Lead"
+    0-49   → "Cold Lead"
+    '''
+    score = 0
+
+    # +15: Graduated or working professional
+    if state.get("student_status") in ("graduated", "working_professional"):
+        score += 15
+        logger.info("[Score] +15: Graduated/Working Professional")
+
+    # +20: Actively job hunting
+    if state.get("looking_for_job") is True and state.get("student_status") in ("graduated", "working_professional"):
+        score += 20
+        logger.info("[Score] +20: Actively job hunting")
+
+    # +15: Responded to call (always true when we reach scoring)
+    score += 15
+    logger.info("[Score] +15: Responded to call")
+
+    # +20: Attended counseling — at least 4 answered fields
+    answered = {k: v for k, v in (state.get("answered_fields") or {}).items() if v and v != "__skipped__"}
+    if len(answered) >= 4:
+        score += 20
+        logger.info(f"[Score] +20: Attended counseling ({len(answered)} fields answered)")
+
+    # +20: Interested in joining
+    if state.get("interested") is True:
+        score += 20
+        logger.info("[Score] +20: Interested in joining")
+
+    # +10: Interested within 30 days
+    join_date_str = state.get("join_date")
+    if join_date_str:
+        try:
+            join_dt = datetime.fromisoformat(join_date_str)
+            today = datetime.now(timezone.utc).replace(tzinfo=None)
+            if hasattr(join_dt, "tzinfo") and join_dt.tzinfo:
+                today = datetime.now(timezone.utc)
+            delta = (join_dt - today).days
+            if 0 <= delta <= 30:
+                score += 10
+                logger.info(f"[Score] +10: Join date within 30 days ({delta} days away)")
+        except Exception as e:
+            logger.warning(f"[Score] Could not parse join_date '{join_date_str}': {e}")
+
+    score = min(score, 100)
+
+    if score >= 80:
+        classification = "Hot Lead"
+    elif score >= 50:
+        classification = "Warm Lead"
+    else:
+        classification = "Cold Lead"
+
+    logger.info(f"[Score] Final: {score} → {classification}")
+    return score, classification
+```
+
+**In `agent/nodes/airtable_node.py`:**
+- Import `compute_lead_score` from `agent.nodes.scoring`.
+- Before building `lead_data`, call:
+  ```python
+  score, classification = compute_lead_score(state)
+  state["lead_score"] = score
+  state["lead_classification"] = classification
+  ```
+- Add to `lead_data`:
+  ```python
+  "Lead Score":          score,
+  "Lead Classification": classification,
+  "Looking for Job":     state.get("looking_for_job"),
+  ```
+
+---
+
+## Task 12 — Working Professional Support (agent/state.py, agent/nodes/questionnaire_node.py)
+
+**Problem:** The questionnaire only handles "student" and "graduated". Working professionals should be treated like graduated people but also asked if they're currently looking for a job.
+
+**What to implement:**
+
+**In `agent/state.py`:**
+Add:
+```python
+looking_for_job: Optional[bool]   # True if graduated/working professional is actively job hunting
+```
+Update the `student_status` field comment to:
+```python
+student_status: Optional[str]     # "student" | "graduated" | "working_professional"
+```
+
+**In `agent/nodes/questionnaire_node.py`:**
+
+1. **Field list / `ALL_FIELDS`:** Add `"looking_for_job"` with description:
+   `"Whether the person is currently looking for a job (only for graduated/working_professional)"`
+
+2. **`_get_next_field()` branching logic:** After `student_status` is collected:
+   - If `student_status == "student"` → branch: `current_year`, `passout_year`, `department`
+   - If `student_status in ("graduated", "working_professional")` → branch: `passout_year`, `department`, `looking_for_job`
+   So `looking_for_job` is only asked when `student_status` is `"graduated"` or `"working_professional"`. Never ask it for students.
+
+3. **`_apply_extracted()` mirror map:** Add `"looking_for_job"` → `state["looking_for_job"]`. The value should be a boolean — the field extraction prompt should extract `true` if the person says they're looking for a job, `false` if not.
+
+4. **`EXTRACT_SYSTEM_PROMPT`:** Add `looking_for_job` to the extractable fields list with description:
+   `"looking_for_job: boolean — true if the person says they are currently looking for a job or actively applying, false otherwise. Only extract if student_status is graduated or working_professional."`
+
+5. **Intent router / small_talk identity handling:** When asking `student_status`, the options should include "working professional" as a valid answer. Update `NEXT_QUESTION_SYSTEM_PROMPT` to note that student status options are: currently studying, graduated, or working professional.
+
+---
+
+## Task 13 — Extract Callback Date and Time as ISO Datetime (agent/nodes/questionnaire_node.py, agent/state.py)
+
+**Problem:** The `callback_time` field stores whatever the user says as free text (e.g. "tomorrow at 3pm"). We need this parsed into a structured ISO datetime string.
+
+**What to implement:**
+
+**In `agent/state.py`:**
+- Keep `callback_time: Optional[str]` but clarify in comment: stores ISO 8601 datetime string (e.g. `"2026-06-25T15:00:00"`)
+- Add `callback_time_raw: Optional[str]` — stores the user's original natural language phrase before parsing
+
+**In `agent/nodes/questionnaire_node.py`:**
+
+After the field extraction step extracts `callback_time` as a raw string, add a dedicated datetime parsing step. Add a helper function `_parse_callback_datetime(raw: str) -> str | None`:
+
+```python
+def _parse_callback_datetime(raw: str) -> str | None:
+    '''
+    Uses LLM to parse a natural language time expression into ISO 8601 datetime.
+    Sends today's date as context so relative expressions like "tomorrow" resolve correctly.
+    Returns ISO string or None if parsing fails.
+    '''
+```
+
+Implementation:
+- Import and use `datetime.now()` to get today's date.
+- Call `client.chat.completions.create` with `temperature=0` and `response_format={"type": "json_object"}`.
+- System prompt:
+  ```
+  ## ROLE
+  You are a datetime parser.
+
+  ## OBJECTIVE
+  Convert a natural language time expression into an ISO 8601 datetime string.
+
+  ## CONTEXT
+  Today's date and time: {today_iso}
+  The user is located in Hyderabad, India (IST, UTC+5:30).
+
+  ## INSTRUCTIONS
+  1. Parse the given time expression relative to today's date.
+  2. If only a time is given (e.g. "3pm"), assume today if it's in the future, otherwise tomorrow.
+  3. If only a day is given (e.g. "tomorrow", "Monday"), assume 10:00 AM IST.
+  4. If the expression is ambiguous or unparseable, return null.
+  5. Return STRICT JSON only.
+
+  ## OUTPUT FORMAT
+  {"iso_datetime": "2026-06-25T15:00:00" | null}
+  ```
+- User message: the raw callback_time string.
+- On success: return `parsed["iso_datetime"]`
+- On failure or null: return `None`, log a warning.
+
+In `questionnaire_node`, when `callback_time` is extracted:
+1. Store the raw string in `state["callback_time_raw"]`.
+2. Call `_parse_callback_datetime(raw)` and store result in `state["callback_time"]`.
+3. If parsing returns `None`, keep `callback_time_raw` and log: `logger.warning("[Questionnaire] Could not parse callback datetime from: {raw}")`
+
+**In `agent/nodes/airtable_node.py`:**
+- Add `"Callback Time (Raw)": state.get("callback_time_raw")` to `lead_data`.
+- The existing `"Callback Time": state.get("callback_time")` now stores the ISO datetime.
+
+Same pattern should apply to `join_date` if it is also a date expression. Apply `_parse_callback_datetime` to `join_date` extraction as well. Store raw in `join_date_raw: Optional[str]` (add to `LeadState`).
+
+---
+
+## Task 14 — Schedule Expert Call for Unknown/Complex Queries (agent/nodes/faq_node.py, agent/nodes/questionnaire_node.py)
+
+**Problem:** When the agent can't answer something — either because it's out of scope, too specific, or the KB doesn't have enough detail — it should offer to schedule a call with an admissions expert rather than giving a vague or unhelpful response.
+
+**What to implement:**
+
+**In `agent/nodes/faq_node.py` — `FAQ_SYSTEM_PROMPT`, add a `## FALLBACK RULES` section:**
+## FALLBACK RULES
+If you cannot answer the student's question confidently from the knowledge base:
+- Do NOT guess or make up information.
+- Do NOT give a vague answer.
+- Instead, say something like:
+  "That's a great question — I don't have all the details on that right now. Let me connect
+   you with our admissions expert who can give you the full picture. Should I schedule a
+   quick call with them?"
+- Set "needs_human_agent": true in your response JSON.
+- This applies to: specific batch dates, specific company names, scholarship details,
+  installment plans, customised training, anything not explicitly in your knowledge base.
+
+**In `agent/nodes/questionnaire_node.py`:**
+
+In the `CONFUSED_SYSTEM_PROMPT` and `IRRELEVANT_SYSTEM_PROMPT`, add an instruction:
+If the user's message suggests they need help beyond what this call can provide
+(e.g. they mention a very specific technical question, pricing negotiation, or complex
+eligibility scenario), offer to schedule a call with an admissions expert.
+In that case, set "schedule_expert": true in the JSON.
+
+Update the JSON output format for those prompts to include `"schedule_expert": false` as a default field.
+
+In `questionnaire_node`, after generating the confused/irrelevant response, check if `parsed.get("schedule_expert")` is `True`. If so, set `state["human_agent_requested"] = True` and `state["next_node"] = "human_agent"`.
+
+---
+
+## State Changes Summary (agent/state.py)
+
+Ensure `LeadState` has ALL of the following fields after all tasks are applied:
+
+```python
+# Existing fields (keep as-is)
+lead_id: str
+lead_name: str
+phone: str
+email: Optional[str]
+messages: list
+last_agent_response: str
+next_node: str
+current_question_key: str
+answered_fields: dict
+human_agent_requested: bool
+pending_switch: Optional[dict]
+pending_sub_query: Optional[str]
+pending_next_question_text: Optional[str]
+question_retry_counts: dict
+greeting_step: int
+course_interest: Optional[str]
+student_status: Optional[str]
+current_year: Optional[str]
+passout_year: Optional[str]
+department: Optional[str]
+training_mode: Optional[str]
+class_type: Optional[str]
+interested: Optional[bool]
+join_date: Optional[str]
+callback_requested: Optional[bool]
+callback_time: Optional[str]
+disposition: str
+call_ended: bool
+
+# New fields added in this batch
+corrected_name: Optional[str]        # Task 6 — name provided when wrong person answers
+looking_for_job: Optional[bool]      # Task 12 — job hunting status for graduated/working
+lead_score: int                      # Task 11 — computed lead score 0-100
+lead_classification: str             # Task 11 — Hot/Warm/Cold Lead
+callback_time_raw: Optional[str]     # Task 13 — raw natural language callback time
+join_date_raw: Optional[str]         # Task 13 — raw natural language join date
+```
+
+---
+
+## Airtable Field Summary (agent/nodes/airtable_node.py)
+
+After all tasks, `lead_data` must include these fields (add new ones, do not remove existing):
+```python
+"Lead Score":             state.get("lead_score"),
+"Lead Classification":    state.get("lead_classification"),
+"Looking for Job":        state.get("looking_for_job"),
+"Corrected Name":         state.get("corrected_name"),
+"Callback Time":          state.get("callback_time"),        # ISO datetime
+"Callback Time (Raw)":    state.get("callback_time_raw"),    # user's phrase
+"Join Date":              state.get("join_date"),            # ISO datetime
+"Join Date (Raw)":        state.get("join_date_raw"),        # user's phrase
+```
+Remove `"Referral Source"` (Task 8).
+Remove `"Budget Range"` if still present (removed in previous batch).
 
 """
 
@@ -502,7 +805,7 @@ async def main():
             model="us.anthropic.claude-sonnet-4-6",
             allowed_tools=["Read", "Edit", "Bash"],
             permission_mode="acceptEdits",
-            cwd = r"C:\Users\vishw\Gradious Files\Gradious bot\backend"
+            cwd = r"C:\Users\vishw\Gradious Files\Gradious bot\backend_claude_run"
         )
     ):
 

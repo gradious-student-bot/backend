@@ -45,7 +45,7 @@ def repeat_node(state: LeadState) -> LeadState:
     try:
         result = client.chat.completions.create(
             model="gpt-4.1-mini",
-            temperature=0.3,
+            temperature=0.6,
             response_format={"type": "json_object"},
             messages=[{
                 "role": "system",

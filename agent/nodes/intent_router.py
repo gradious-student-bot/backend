@@ -21,7 +21,7 @@ and the intent descriptions below. Return a strict JSON response.
 1. **answer**
    Return "answer" if the student is responding to a question the agent just asked.
    This includes direct answers like "CSE", "3rd year", "Online", "Yes", "No", "Next month",
-   "Through Instagram", "Full Stack", and also compound answers like
+   "Full Stack", and also compound answers like
    "I'm a 3rd year CSE student" or "I prefer online, self-paced".
    IMPORTANT: If the agent just asked a question and the student's reply contains information
    that answers it — even partially — classify as "answer", not "query".
@@ -75,6 +75,22 @@ and the intent descriptions below. Return a strict JSON response.
     Return "end_call" if the student is politely wrapping up the conversation.
     Examples: "Bye", "Thanks, goodbye", "I'll call back", "Talk later", "That's all"
 
+11. **small_talk**
+    Return "small_talk" if the user's message is any of the following — at any point in the
+    conversation, including before identity confirmation:
+    - Greetings: "Hi", "Hello", "Hey", "Yes hi", or similar.
+    - Identity meta-questions: "Who is this?", "Who are you?", "Which company?",
+      "Where are you calling from?", "Who am I speaking to?", "Are you a bot?",
+      "Are you a real person?", "What are you?"
+    - Purpose questions: "Why are you calling?", "What is this about?", "What do you want?"
+    - Pleasantries: "How are you?", "Good morning", etc.
+    - Confusion signals that are NOT a direct yes/no answer: "Huh?", "Sorry?", "What?",
+      "I can't hear you" — ONLY when these appear in a context where the agent has NOT
+      just asked a clarifying question (in which case they would be "confused").
+    KEY RULE: During the confirm_identity step, any response that is NOT a clear yes/no
+    identity confirmation (e.g. "Yes", "No", "Speaking", "Wrong number") must be classified
+    as "small_talk" — this includes all greetings, identity questions, and purpose questions.
+
 ## CRITICAL DISAMBIGUATION RULES
 
 1. If the agent's last message was a question AND the student's reply contains an answer
@@ -85,6 +101,12 @@ and the intent descriptions below. Return a strict JSON response.
    by the agent's last question (no answer present).
 4. Short replies after agent questions ("Yes", "No", "CSE", "Online") are always **answer**.
 5. If unsure between "answer" and "query", prefer **answer**.
+6. Greetings like "Hi", "Hello", or "Hey" that do not answer the agent's question → **small_talk**.
+7. Meta-questions about the agent ("Are you a bot?", "Who are you?") → **small_talk**.
+8. When the agent just asked "Am I speaking with [Name]?" (identity confirmation), ONLY classify
+   as "answer" if the reply is a clear yes/no: "Yes", "No", "Speaking", "Wrong number",
+   "That's me", "Not me", etc. Everything else — greetings, identity questions, purpose questions,
+   "Huh?", "Who is this?" — must be classified as **small_talk**.
 
 ## CONVERSATION CONTEXT
 The agent's last message (the question that was just asked) is provided below.
@@ -95,7 +117,7 @@ Agent's last message: {last_agent_message}
 ## OUTPUT FORMAT
 Return STRICT JSON only. No explanation, no markdown, no extra text.
 {{
-  "intent": "answer | query | answer_and_query | repeat | human_agent | not_interested | rude | irrelevant | confused | end_call",
+  "intent": "answer | query | answer_and_query | repeat | human_agent | not_interested | rude | irrelevant | confused | end_call | small_talk",
   "reasoning": "<one short sentence explaining why>",
   "sub_query": "<the isolated question portion of the message if intent is answer_and_query, otherwise null>"
 }}"""
@@ -104,12 +126,6 @@ Return STRICT JSON only. No explanation, no markdown, no extra text.
 def intent_router_node(state: LeadState) -> LeadState:
     user_message = state["messages"][-1].content
     logger.info(f"[IntentRouter] Lead={state['lead_id']} | Input: {user_message[:80]}")
-
-    # Identity confirmation phase — always treat as answer
-    if state.get("current_question_key") == "confirm_identity":
-        logger.info("[IntentRouter] confirm_identity phase → forcing 'answer'")
-        state["next_node"] = "answer"
-        return state
 
     last_agent_msg = state.get("last_agent_response", "")
 
@@ -152,7 +168,7 @@ def intent_router_node(state: LeadState) -> LeadState:
 
     valid_intents = {
         "answer", "query", "answer_and_query", "repeat", "human_agent",
-        "not_interested", "rude", "irrelevant", "confused", "end_call",
+        "not_interested", "rude", "irrelevant", "confused", "end_call", "small_talk",
     }
     if intent not in valid_intents:
         logger.warning(f"[IntentRouter] Unknown intent '{intent}' → defaulting to 'answer'")

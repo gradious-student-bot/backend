@@ -23,6 +23,7 @@ def route_after_intent(state: LeadState) -> str:
         "rude":             "questionnaire",
         "irrelevant":       "questionnaire",
         "confused":         "questionnaire",
+        "small_talk":       "questionnaire",   # Task 2 (Batch 3): small_talk handled inline in questionnaire
         "not_interested":   "end",
         "end_call":         "end",
     }
