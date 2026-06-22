@@ -1,8 +1,8 @@
 {
     "company": {
         "name": "Gradious",
-        "office_location": "Hyderabad, Telangana",
-        "office_timings": "Mon–Sat, 10 AM – 7 PM",
+        "office_location": "Lotus Heights, Madhapur, Hyderabad, Telangana - 500033",
+        "office_timings": "Mon-Fri, 10 AM - 7 PM",
         "contact_email": "admissions@gradious.com",
         "website": "https://gradious.com"
     },
@@ -23,7 +23,7 @@
     },
     "placements": {
         "assistance": true,
-        "avg_package": "4–8 LPA",
+        "avg_package": "4-8 LPA",
         "partnered_companies": [
             "accenture",
             "synchrony",

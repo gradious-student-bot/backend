@@ -170,7 +170,7 @@ def build_complete_course_context(kb: dict, course: str) -> str:
 
 COURSE DETAILS — {c["name"]}
 Eligibility     : {c["eligibility"]}
-Modes Available : {", ".join(c["modes"])}
+Modes Bindhuilable : {", ".join(c["modes"])}
 Topics Covered  :
 {topics}
 
