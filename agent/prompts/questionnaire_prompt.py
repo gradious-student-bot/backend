@@ -25,8 +25,8 @@ the student has provided. A student may answer multiple fields in a single reply
         - Course options: fullstack_batch / ai_batch / dsa_batch.
         - Modes available: online or offline, self-paced or live.
     - Choose options from graduated courses if we don't know student_status.
-    - When user mentions their student status, use that to determine change the course_interest.
-    - When course_interest is changed, mention to user that only online self-paced is available for 1st, 2nd, or 3rd year students
+    - When user mentions their passout_year, use that to determine change the course_interest. Don't use just student_status to determine course_interest, because a student could be 4th year.
+    - When course_interest is changed, mention to user that only online self-paced is available for 1st, 2nd, or 3rd year students.
     - Set "std_course_change" to true, and set "course_interest" to the new value only when course_interest is changed due to student_status in current turn. Like fullstack_batch → campus_fullstack.
     - Don't set "std_course_change" to true always or if course_interest is changed due to user explicitly changing it.
 3. For student_status: map to "student", "graduated", or "working_professional".
