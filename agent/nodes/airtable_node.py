@@ -26,6 +26,8 @@ def airtable_node(state: LeadState) -> LeadState:
         "class_type":             state.get("class_type"),
         "interested":             state.get("interested"),
         "join_date":              state.get("join_date"),          # ISO datetime
+        "onboarding_requested": state.get("onboarding_requested"),
+        "onboarding_email_sent": state.get("onboarding_email_sent"),
         "Join Date (Raw)":        state.get("join_date_raw"),      # user's phrase
         "callback_requested":     state.get("callback_requested"),
         "callback_time":          state.get("callback_time"),      # ISO datetime

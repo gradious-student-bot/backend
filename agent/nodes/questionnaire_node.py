@@ -9,6 +9,7 @@ from services.email_service import send_onboarding_email
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Field schema sent to LLM so it knows what to extract and what's pending
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ ALL_FIELDS = {
     "interested":           "Whether the student is interested in joining — values: yes | no",
     "join_date":            "When the student plans to start — only if interested is yes",
     "onboarding_requested": "Whether the student wants the onboarding form sent to their email address — values: yes | no",
-    "onboarding_email_sent":"Whether the onboarding email has been sent — values: yes | no",
+    "onboarding_requested":"Whether the student wants the onboarding form sent to their email address — values: yes | no",
     "callback_requested":   "Whether student wants a callback from admissions team — values: yes | no",
     "callback_time":        "Preferred time for the callback — only if callback_requested is yes",
 }
@@ -39,7 +40,6 @@ CONDITIONAL_FIELDS = {
     "join_date":            lambda af: str(af.get("interested", "")).lower() == "yes",
     "callback_time":        lambda af: str(af.get("callback_requested", "")).lower() == "yes",
     "onboarding_requested": lambda af: str(af.get("interested", "")).lower() == "yes",
-    "onboarding_email_sent": lambda af: af.get("onboarding_email_sent") is True,
 }
 
 # Task 1: fields that require confirmation if the student changes them mid-conversation
@@ -82,19 +82,19 @@ the student has provided. A student may answer multiple fields in a single reply
 Return STRICT JSON only. No explanation, no markdown.
 {{
   "extracted": {{
-    "course_interest": "",
-    "student_status": "",
-    "current_year": "",
-    "passout_year": "",
-    "department": "",
-    "training_mode": "",
-    "class_type": "",
-    "looking_for_job": "",
-    "interested": "",
-    "join_date": "",
-    "onboarding_requested": "",
-    "callback_requested": "",
-    "callback_time": ""
+    "course_interest": "<value or null>",
+    "student_status": "<value or null>",
+    "current_year": "<value or null>",
+    "passout_year": "<value or null>",
+    "department": "<value or null>",
+    "training_mode": "<value or null>",
+    "class_type": "<value or null>",
+    "looking_for_job": "<true | false | null>",
+    "interested": "<value or null>",
+    "join_date": "<value or null>",
+    "onboarding_requested": "<value or null>",
+    "callback_requested": "<value or null>",
+    "callback_time": "<value or null>"
   }}
 }}"""
 
@@ -271,7 +271,7 @@ Return STRICT JSON only.
   "response": ""
 }}"""
 
-CONFIRM_INTEREST_SYSTEM_PROMPT = """\
+INTRO_WITH_FIRST_QUESTION_PROMPT = """\
 ## PERSONA
 You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
 on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
@@ -306,6 +306,89 @@ the main questionnaire. You are about to ask them about which course they're int
 Return STRICT JSON only.
 {{
   "response": ""
+}}"""
+
+CONFIRM_INTEREST_SYSTEM_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
+situation and guide them toward the right course. You are never pushy, but you are
+subtly persuasive — you highlight genuine benefits, create mild urgency where appropriate,
+and always make the student feel that Gradious is the right place for their career growth.
+
+Tone guidelines:
+- Calm and confident — never rushed or scripted-sounding.
+- Use natural fillers where appropriate: "Sure!", "Got it.", "Ok, so...", "Right."
+- Highlight one genuine benefit or differentiator per response when opportunity arises
+  (e.g. placement support, practice-based learning, industry mentors) — but don't overdo it.
+- If a student seems hesitant, gently acknowledge and address the hesitation before moving on.
+- Do not use corporate speak, buzzwords, or filler phrases like "Absolutely!", "Certainly!",
+  "Great question!", "Definitely!".
+- Speak in short sentences — this is a phone call, not an essay.
+
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student expressed interest in learning more. Generate a brief, warm transition into
+the main questionnaire. You are about to ask them about which course they're interested in.
+
+## RULES
+- The transition and the question must flow as one cohesive spoken response.
+- Do not use a list or bullet format — this is a phone call.
+- The course names should be mentioned naturally so the student knows their options.
+- Keep the entire response under 3 sentences total.
+- Do not say "Let me ask you a few questions" and then pause — just ask the course question.
+- DO NOT create new courses by yourself — only mention the two options above, even if the student mentioned something else.
+
+## STYLE EXAMPLES (inspiration only — LLM generates its own version)
+"Great! So to help you out, I just need a couple of details — starting with, which course
+are you looking at, the Full Stack + Gen AI one or the AI Stack?"
+
+"Perfect. I'll just get a few quick details from you — which course are you interested in,
+Full Stack or the AI program?"
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<single flowing spoken response that ends with the course question>"
+}}"""
+
+CONFIRM_INTEREST_SYSTEM_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
+situation and guide them toward the right course. You are never pushy, but you are
+subtly persuasive — you highlight genuine benefits, create mild urgency where appropriate,
+and always make the student feel that Gradious is the right place for their career growth.
+
+Tone guidelines:
+- Calm and confident — never rushed or scripted-sounding.
+- Use natural fillers where appropriate: "Sure!", "Got it.", "Ok, so...", "Right."
+- Highlight one genuine benefit or differentiator per response when opportunity arises
+  (e.g. placement support, practice-based learning, industry mentors) — but don't overdo it.
+- If a student seems hesitant, gently acknowledge and address the hesitation before moving on.
+- Do not use corporate speak, buzzwords, or filler phrases like "Absolutely!", "Certainly!",
+  "Great question!", "Definitely!".
+- Speak in short sentences — this is a phone call, not an essay.
+
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The student expressed interest in learning more. Generate a brief, warm transition into
+the main questionnaire. You are about to ask them about which course they're interested in.
+
+## RULES
+- Acknowledge their interest briefly (1 sentence).
+- Transition naturally: "Let me get a few details to help point you in the right direction."
+- Keep it to 2 sentences max.
+- Sound natural, not scripted.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your transition message>"
 }}"""
 
 WRAP_UP_SYSTEM_PROMPT = """\
@@ -618,8 +701,7 @@ def _get_next_field(af: dict) -> str | None:
         "course_interest", "student_status", "current_year",
         "passout_year", "department", "training_mode", "class_type",
         "looking_for_job", "interested",
-        "join_date", "onboarding_requested", "onboarding_email_sent",
-        "callback_requested", "callback_time",
+        "join_date","onboarding_requested", "callback_requested", "callback_time",
     ]
     for field in order:
         if field in af:
@@ -750,10 +832,24 @@ def questionnaire_node(state: LeadState) -> LeadState:
         is_yes = any(w in text_lower for w in affirmatives)
 
         if is_yes:
-            result = _llm_json([{"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}])
-            response = result.get("response", "Got it. Let me get a few details to help point you in the right direction.")
+            result = _llm_json([
+                {"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}
+            ])
+
+            transition = result.get(
+                "response",
+                "Got it. Let me get a few details to help point you in the right direction."
+            )
+
+            course_question = (
+                "Which course are you interested in — full stack development, AI, or DSA?"
+            )
+
+            response = f"{transition} {course_question}"
+
             state["greeting_step"] = 3
             state["current_question_key"] = "course_interest"
+
             _set_response(state, response)
             return state
         else:
@@ -900,37 +996,85 @@ def questionnaire_node(state: LeadState) -> LeadState:
             # No switch — apply extracted fields normally
             _apply_extracted(state, extracted)
 
-            # ── SEND ONBOARDING EMAIL ─────────────────────────────────────────
-            if (
-                current_q_key == "onboarding_requested"
-                and state.get("onboarding_requested")
-                and not state.get("onboarding_email_sent")
-            ):
+            # ---------------------------------------------------
+            # EMAIL RECEIVED CHECK
+            # ---------------------------------------------------
+
+            # ---------------------------------------------------
+            # SEND ONBOARDING EMAIL
+            # ---------------------------------------------------
+
+            onboarding_yes = (
+                str(extracted.get("onboarding_requested", "")).lower() == "yes"
+                or state.get("onboarding_requested") is True
+                or str(state["answered_fields"].get("onboarding_requested", "")).lower() == "yes"
+            )
+
+            if onboarding_yes and not state.get("onboarding_email_sent"):
+
                 if not state.get("email"):
+
                     logger.warning(
                         f"No email found for lead {state.get('lead_id')}"
                     )
-                else:
-                    logger.info(
-                        f"Sending onboarding email to {state.get('email')}"
-                    )
-                    success = send_onboarding_email(
-                        student_name=state.get("lead_name", ""),
-                        receiver_email=state.get("email", ""),
-                    )
-                    state["onboarding_email_sent"] = success
-                    if success:
-                        state["answered_fields"]["email_confirmation_pending"] = True
-                        logger.info(
-                            f"Onboarding email sent to {state.get('email')}"
-                        )
-                    else:
-                        logger.error(
-                            f"Failed sending onboarding email to {state.get('email')}"
-                        )
 
-        except Exception as e:
-            logger.error(f"[Questionnaire] Extraction error: {e}")
+                    response = (
+                        "I don't seem to have your email address. "
+                        "Could you please share it so I can send the onboarding form?"
+                    )
+
+                    _set_response(state, response)
+                    return state
+
+                logger.info(
+                    f"Sending onboarding email to {state.get('email')}"
+                )
+
+                success = send_onboarding_email(
+                    student_name=state.get("lead_name", ""),
+                    receiver_email=state.get("email", ""),
+                )
+
+                if success:
+
+                    logger.info(
+                        f"Onboarding email sent to {state.get('email')}"
+                    )
+
+                    state["onboarding_email_sent"] = True
+                    state["answered_fields"]["onboarding_email_sent"] = True
+
+                    response = (
+                        "I've sent the onboarding form to your email address. "
+                        "Please check your inbox, and if you don't see it there, "
+                        "have a look in your spam or junk folder as well. "
+                        "Would you like someone from our admissions team to give you a callback?"
+                    )
+
+                    state["current_question_key"] = "callback_requested"
+
+                    _set_response(state, response)
+                    return state
+
+                else:
+
+                    logger.error(
+                        f"Failed sending onboarding email to {state.get('email')}"
+                    )
+
+                    response = (
+                        "I'm sorry, I couldn't send the onboarding form right now. "
+                        "Our team will try again shortly."
+                    )
+
+                    _set_response(state, response)
+                    return state
+                
+        except Exception:
+            logger.exception(
+                "[Questionnaire] Failed to extract fields from user response. Proceeding without extraction."
+            )
+            # Task 4: on extraction failure, log the miss and proceed (retry counter handles retries)
 
     # ── EMAIL SENT CONFIRMATION ───────────────────────────────────────────────
     if state["answered_fields"].get("email_confirmation_pending"):
@@ -963,6 +1107,8 @@ def questionnaire_node(state: LeadState) -> LeadState:
         state["next_node"] = "faq_after_answer"
         logger.info("[Questionnaire] answer_and_query → routing to faq_after_answer")
         return state
+    
+
 
     # ── 7. Determine next field ───────────────────────────────────────────────
     next_key = _get_next_field(state["answered_fields"])
