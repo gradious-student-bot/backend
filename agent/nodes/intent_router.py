@@ -129,7 +129,6 @@ def intent_router_node(state: LeadState) -> LeadState:
 
     last_agent_msg = state.get("last_agent_response", "")
 
-    # Task 6: build recent message history for context
     from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
     recent = []
     msgs = state.get("messages", [])
@@ -177,7 +176,7 @@ def intent_router_node(state: LeadState) -> LeadState:
 
     state["next_node"] = intent
 
-    # Task 2: store sub_query in state for answer_and_query handling
+    # Store sub_query in state for answer_and_query handling
     if intent == "answer_and_query" and sub_query:
         state["pending_sub_query"] = sub_query
     else:

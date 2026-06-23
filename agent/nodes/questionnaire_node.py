@@ -140,7 +140,7 @@ def _set_response(state: LeadState, text: str):
 
 def get_recent_messages(state: LeadState, n: int = 10) -> list:
     """
-    Task 6: Returns the last n messages from state["messages"] formatted as OpenAI
+    Returns the last n messages from state["messages"] formatted as OpenAI
     chat message dicts: {"role": "user"|"assistant", "content": "..."}.
     Skips the very last message (which is the current user input, already handled separately).
     """
@@ -329,7 +329,7 @@ def questionnaire_node(state: LeadState) -> LeadState:
                 fields_description=_fields_description(),
                 filled_fields=_filled_summary(state["answered_fields"]),
             )
-            # Task 6: include recent message history in extraction call
+
             recent_extract = get_recent_messages(state, 10)
             extract_result = client.chat.completions.create(
                 model="gpt-4.1-mini",
@@ -344,7 +344,7 @@ def questionnaire_node(state: LeadState) -> LeadState:
             extracted = json.loads(extract_result.choices[0].message.content).get("extracted", {})
             logger.info(f"[Questionnaire] Extracted fields: {extracted}")
 
-            # Task 1: detect if any switchable field is being changed mid-conversation
+            # Detect if any switchable field is being changed mid-conversation
             af = state["answered_fields"]
             switch_detected = False
             for field in SWITCHABLE_FIELDS:
@@ -463,7 +463,7 @@ def questionnaire_node(state: LeadState) -> LeadState:
         _set_response(state, response)
         return state
 
-    # ── Task 2: answer_and_query — hand off to faq_after_answer ──────────────
+    # ── Answer_and_query — hand off to faq_after_answer ──────────────
     if intent == "answer_and_query" and state.get("pending_sub_query"):
         next_key = _get_next_field(state["answered_fields"])
         if next_key:
@@ -520,7 +520,7 @@ def questionnaire_node(state: LeadState) -> LeadState:
 
     # ── 8. Ask next question ──────────────────────────────────────────────────
     state["current_question_key"] = next_key
-    
+
     recent_q = get_recent_messages(state, 6)
     result = _llm_json(
         [{"role": "system", "content": NEXT_QUESTION_SYSTEM_PROMPT.format(

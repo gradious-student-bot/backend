@@ -20,12 +20,12 @@ class LeadState(TypedDict):
     answered_fields: dict
     human_agent_requested: bool
     greeting_step: int  # 0 = not started, 1 = identity confirmed, 2 = timing confirmed, 3 = interest confirmed → proceed to Q flow
-    question_retry_counts: dict  # field name → number of times asked (Task 4)
+    question_retry_counts: dict  # field name → number of times asked
 
     # Entity switch detection
     pending_switch: Optional[dict]  # {"field": "<field_name>", "new_value": "<new_value>"}
 
-    # Multi-intent handling (Task 2)
+    # Multi-intent handling
     pending_sub_query: Optional[str]
     pending_next_question_text: Optional[str]
 

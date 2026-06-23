@@ -139,7 +139,7 @@ def faq_node(state: LeadState) -> LeadState:
     from langchain_core.messages import AIMessage, HumanMessage
     from langchain_core.messages import AIMessage as LCAIMessage
 
-    # Task 2: use pending_sub_query if set (answer_and_query flow), else last message
+    # Use pending_sub_query if set (answer_and_query flow), else last message
     if state.get("pending_sub_query"):
         user_query = state["pending_sub_query"]
         logger.info(f"[FAQ] Using pending_sub_query: {user_query[:80]}")
@@ -159,7 +159,7 @@ def faq_node(state: LeadState) -> LeadState:
         logger.info("[FAQ] LMS-specific query detected — including full LMS detail context")
     context = build_faq_context(course_keys, include_lms_detail=True)
 
-    # Task 2: use pending_next_question_text if set, otherwise fall back to last_agent_response
+    # Use pending_next_question_text if set, otherwise fall back to last_agent_response
     if state.get("pending_next_question_text"):
         pending_question = state["pending_next_question_text"]
         logger.info(f"[FAQ] Using pending_next_question_text as pending question")

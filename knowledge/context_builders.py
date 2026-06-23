@@ -239,7 +239,9 @@ Offline Advantage : {mentors["offline_note"]}
 
 
 def build_placement_context(kb: dict) -> str:
-    """Task 9: Updated to use new placement fields, no company names list."""
+    """
+    Returns a block about Gradious' placement support, packages, and partner companies.
+    """
     logger.info("Building placement context")
     p = kb["placements"]
     return f"""
@@ -275,7 +277,7 @@ def build_complete_course_context(kb: dict, course: str) -> str:
     class_types = c.get("class_types", ["self-paced", "live-classes"])
     modes       = c.get("modes", ["online", "offline"])
 
-    # Task 4: batch_schedule block
+    # batch_schedule block
     batch_sched = c.get("batch_schedule")
     batch_block = ""
     if batch_sched:

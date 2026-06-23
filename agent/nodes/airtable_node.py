@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 def airtable_node(state: LeadState) -> LeadState:
-    # Task 11: compute lead score and classification before writing
+    # Compute lead score and classification before writing
     score, classification = compute_lead_score(state)
     state["lead_score"] = score
     state["lead_classification"] = classification
@@ -35,11 +35,11 @@ def airtable_node(state: LeadState) -> LeadState:
         "disposition":            state.get("disposition", "unknown"),
         "onboarding_requested": state.get("onboarding_requested"),
         "onboarding_email_sent": state.get("onboarding_email_sent"),
-        # Task 11: scoring
+        # Compute lead score and classification
         "Lead Score":             score,
         "Lead Classification":    classification,
         "Looking for Job":        state.get("looking_for_job"),
-        # Task 6: corrected name
+        # Corrected name
         "Corrected Name":         state.get("corrected_name"),
     }
 
