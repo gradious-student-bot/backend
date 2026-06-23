@@ -17,7 +17,18 @@ the student has provided. A student may answer multiple fields in a single reply
 
 ## RULES
 1. Extract ONLY fields that the student has clearly provided in their reply.
-2. For course_interest: map to fullstack_batch / ai_batch / dsa_batch based on what student says.
+2. For course_interest: Courses are available based on users of 1 to 3 year and higher.
+    - For users in 1st, 2nd, or 3rd year:
+        - Course options: campus_fullstack / campus_ai / dsa_batch
+        - Modes available: online with self-paced only.
+    - For users of 4th year, graduated, or working professionals:
+        - Course options: fullstack_batch / ai_batch / dsa_batch.
+        - Modes available: online or offline, self-paced or live.
+    - Choose options from graduated courses if we don't know student_status.
+    - When user mentions their student status, use that to determine change the course_interest.
+    - When course_interest is changed, mention to user that only online self-paced is available for 1st, 2nd, or 3rd year students
+    - Set "std_course_change" to true, and set "course_interest" to the new value only when course_interest is changed due to student_status in current turn. Like fullstack_batch → campus_fullstack.
+    - Don't set "std_course_change" to true always or if course_interest is changed due to user explicitly changing it.
 3. For student_status: map to "student", "graduated", or "working_professional".
 4. For training_mode: map to "online" or "offline".
 5. For class_type: map to "self_paced" or "live".
@@ -43,11 +54,12 @@ Return STRICT JSON only. No explanation, no markdown.
     "training_mode": "<value or null>",
     "class_type": "<value or null>",
     "looking_for_job": "<true | false | null>",
-    "interested": "<value or null>",
+    "interested": "<true | false | null>",
     "join_date": "<value or null>",
     "onboarding_requested": "<value or null>",
     "callback_requested": "<value or null>",
-    "callback_time": "<value or null>"
+    "callback_time": "<value or null>",
+    "std_course_change": "<true | false | null>"
   }}
 }}"""
 
@@ -103,6 +115,11 @@ Description: {field_description}
 
 ## STUDENT'S LAST REPLY (for context to phrase acknowledgement)
 "{last_user_reply}"
+
+## STUDENT COURSE CHANGED
+"{std_course_change}"
+- If std_course_change is true, acknowledge the change in course interest due to student status and ask the next question in the same response.
+- Like "Only online self-paced is available for 1st, 2nd, or 3rd year students" then next question.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
@@ -550,8 +567,10 @@ Ask them to confirm the switch naturally.
 
 ## RULES
 - Reference the old value and new value clearly.
-- Ask once, simply: "You had selected [old value] earlier — did you want to switch to [new value]?"
+- Ask once, simply: "You had selected [old value] earlier, did you want to switch to [new value]?"
 - Keep it to one sentence.
+- If course_interest is being changed to campus_fullstack/campus_ai, mention that only online self-paced is available for 1st, 2nd, or 3rd year students.
+- If value has _ in it, replace with a space when speaking to the student.
 - Sound natural.
 
 ## OUTPUT FORMAT

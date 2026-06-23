@@ -16,7 +16,7 @@ def write_lead(lead_data: dict) -> dict:
     Filters out None values before writing.
     """
     clean_data = {k: v for k, v in lead_data.items() if v is not None}
-    logger.info(f"Writing lead record to Airtable: {clean_data.get('Lead ID')}")
+    logger.info(f"Writing lead record to Airtable: {clean_data.get('lead_id')}")
     logger.info(f"Lead data fields: {list(clean_data.keys())}")
     
     try:

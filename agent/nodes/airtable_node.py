@@ -20,16 +20,16 @@ def airtable_node(state: LeadState) -> LeadState:
         "interested_course":      state.get("course_interest"),
         "student_status":         state.get("student_status"),
         "current_year":           state.get("current_year"),
-        "passout_year":           state.get("passout_year"),
+        "passout_year":           str(state.get("passout_year")),
         "department":             state.get("department"),
         "training_mode":          state.get("training_mode"),
         "class_type":             state.get("class_type"),
-        "interested":             state.get("interested"),
+        "interested":             state.get("interested"),         # Boolean
         "join_date":              state.get("join_date"),          # ISO datetime
-        "onboarding_requested": state.get("onboarding_requested"),
-        "onboarding_email_sent": state.get("onboarding_email_sent"),
+        "onboarding_requested": state.get("onboarding_requested"), # Boolean
+        "onboarding_email_sent": state.get("onboarding_email_sent"), # Boolean
         "Join Date (Raw)":        state.get("join_date_raw"),      # user's phrase
-        "callback_requested":     state.get("callback_requested"),
+        "callback_requested":     state.get("callback_requested"), # Boolean
         "callback_time":          state.get("callback_time"),      # ISO datetime
         "Callback Time (Raw)":    state.get("callback_time_raw"),  # user's phrase
         "disposition":            state.get("disposition", "unknown"),
@@ -38,7 +38,7 @@ def airtable_node(state: LeadState) -> LeadState:
         # Compute lead score and classification
         "Lead Score":             score,
         "Lead Classification":    classification,
-        "Looking for Job":        state.get("looking_for_job"),
+        "Looking for Job":        state.get("looking_for_job"),     # Boolean
         # Corrected name
         "Corrected Name":         state.get("corrected_name"),
     }

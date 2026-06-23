@@ -65,6 +65,9 @@ SWITCHABLE_FIELDS = {"course_interest", "training_mode"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _llm_json(messages: list) -> dict:
+    """
+    Calls the LLM with a list of messages and returns the parsed JSON response.
+    """
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
         temperature=0.4,
@@ -75,16 +78,21 @@ def _llm_json(messages: list) -> dict:
 
 
 def _filled_summary(af: dict) -> str:
+    """Returns a string summary of the fields that have been filled so far, for LLM prompt context."""
     if not af:
         return "None yet."
     return "\n".join(f"  {k}: {v}" for k, v in af.items())
 
 
 def _fields_description() -> str:
+    """Returns a string describing all fields and their expected values, for LLM prompt context."""
     return "\n".join(f"  {k}: {v}" for k, v in ALL_FIELDS.items())
 
 
 def _get_next_field(af: dict) -> str | None:
+    """
+    Returns the next field key that has not yet been filled, in the order defined by ALL_FIELDS.
+    """
     order = [
         "course_interest", "student_status", "current_year",
         "passout_year", "department", "training_mode", "class_type",
@@ -102,10 +110,14 @@ def _get_next_field(af: dict) -> str | None:
 
 
 def _apply_extracted(state: LeadState, extracted: dict):
+    """
+    Applies the extracted fields to the state, updating answered_fields and top-level state fields.
+    """
     af = state["answered_fields"]
     for key, value in extracted.items():
         if value is None or value == "null":
             continue
+
         af[key] = value
 
         # Mirror to top-level state fields
@@ -133,6 +145,9 @@ def _apply_extracted(state: LeadState, extracted: dict):
 
 
 def _set_response(state: LeadState, text: str):
+    """
+    Sets the last_agent_response and appends an AIMessage to the messages list.
+    """
     from langchain_core.messages import AIMessage
     state["last_agent_response"] = text
     state["messages"].append(AIMessage(content=text))
@@ -330,6 +345,8 @@ def questionnaire_node(state: LeadState) -> LeadState:
                 filled_fields=_filled_summary(state["answered_fields"]),
             )
 
+            logger.info(f"[Questionnaire] Current fields: {state['answered_fields']}")
+
             recent_extract = get_recent_messages(state, 10)
             extract_result = client.chat.completions.create(
                 model="gpt-4.1-mini",
@@ -347,13 +364,28 @@ def questionnaire_node(state: LeadState) -> LeadState:
             # Detect if any switchable field is being changed mid-conversation
             af = state["answered_fields"]
             switch_detected = False
+
             for field in SWITCHABLE_FIELDS:
                 new_val = extracted.get(field)
+
+                # If the new value is different from the old value, prompt for confirmation
+                # Except if extracted has true for std_course_change, where we don't ask for confirmation
+                # We just inform the user that only online self-paced is available for 1st, 2nd, or 3rd year students.
+                # Also ask the next question within that response.
+                if field == "course_interest" and extracted.get("std_course_change") is True:
+                    old_val = af.get(field)
+                    logger.info(f"[Questionnaire] Course interest changed due to student status: {old_val} → {new_val}")
+
+                    _apply_extracted(state, {field: new_val})
+                    break
+
                 if new_val and new_val != "null" and field in af and af[field] != new_val:
                     old_val = af[field]
                     logger.info(f"[Questionnaire] Switch detected: {field} {old_val} → {new_val}")
+                    
                     state["pending_switch"] = {"field": field, "new_value": new_val}
                     state["current_question_key"] = "confirm_switch"
+                    
                     switch_result = _llm_json([{
                         "role": "system",
                         "content": CONFIRM_SWITCH_SYSTEM_PROMPT.format(
@@ -362,11 +394,13 @@ def questionnaire_node(state: LeadState) -> LeadState:
                             new_value=new_val,
                         ),
                     }])
+
                     switch_response = switch_result.get(
                         "response",
                         f"You had selected {old_val} earlier — did you want to switch to {new_val}?"
                     )
                     _set_response(state, switch_response)
+
                     switch_detected = True
                     break  # only handle one switch at a time
 
@@ -528,9 +562,11 @@ def questionnaire_node(state: LeadState) -> LeadState:
             next_field=next_key,
             field_description=ALL_FIELDS[next_key],
             last_user_reply=user_text,
+            std_course_change=state["answered_fields"].get("std_course_change", False)
         )}]
         + recent_q
     )
+    state["answered_fields"]["std_course_change"] = False  # reset after using it in prompt
     response = result.get("response", ALL_FIELDS[next_key])
     _set_response(state, response)
     return state
