@@ -31,6 +31,8 @@ def airtable_node(state: LeadState) -> LeadState:
         "callback_time":          state.get("callback_time"),      # ISO datetime
         "Callback Time (Raw)":    state.get("callback_time_raw"),  # user's phrase
         "disposition":            state.get("disposition", "unknown"),
+        "onboarding_requested": state.get("onboarding_requested"),
+        "onboarding_email_sent": state.get("onboarding_email_sent"),
         # Task 11: scoring
         "Lead Score":             score,
         "Lead Classification":    classification,

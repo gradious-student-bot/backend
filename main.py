@@ -1,9 +1,11 @@
 import os
 import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 import uvicorn
+
 from api.routes import router
 
 logger = logging.getLogger(__name__)

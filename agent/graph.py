@@ -1,5 +1,6 @@
 import logging
 from langgraph.graph import StateGraph, END
+
 from agent.state import LeadState
 from agent.nodes.intent_router import intent_router_node
 from agent.nodes.questionnaire_node import questionnaire_node
@@ -12,59 +13,79 @@ logger = logging.getLogger(__name__)
 
 
 def route_after_intent(state: LeadState) -> str:
+    """
+    Determine the next node based on the intent extracted from the user's input.
+    """
     intent = state.get("next_node", "answer")
     logger.info(f"Routing after intent: {intent}")
+    
     routing = {
-        "answer":           "questionnaire",
-        "query":            "faq",
-        "answer_and_query": "questionnaire",   # Task 2: questionnaire handles extraction, then routes to faq_after_answer
-        "repeat":           "repeat",
-        "human_agent":      "questionnaire",
-        "rude":             "questionnaire",
-        "irrelevant":       "questionnaire",
-        "confused":         "questionnaire",
-        "small_talk":       "questionnaire",   # Task 2 (Batch 3): small_talk handled inline in questionnaire
-        "not_interested":   "end",
-        "end_call":         "end",
+        "answer":           "questionnaire",    # default to questionnaire if no specific intent is found
+        "query":            "faq",              # route to FAQ for general queries
+        "answer_and_query": "questionnaire",    # route to questionnaire first, then FAQ
+        "repeat":           "repeat",           # route to repeat node for repeating the last question
+        "human_agent":      "questionnaire",    # route to questionnaire for human agent requests
+        "rude":             "questionnaire",    # route to questionnaire for rude or inappropriate inputs
+        "irrelevant":       "questionnaire",    # route to questionnaire for irrelevant inputs
+        "confused":         "questionnaire",    # route to questionnaire for confused inputs
+        "small_talk":       "questionnaire",    # route to questionnaire for small talk
+        "not_interested":   "end",              # route to end node for disinterest
+        "end_call":         "end",              # route to end node for explicit end call requests
     }
+
     route = routing.get(intent, "questionnaire")
     logger.info(f"Route selected: {route}")
+
     return route
 
 
 def route_after_questionnaire(state: LeadState) -> str:
-    # Task 2: questionnaire node signals faq_after_answer via next_node
+    """
+    Determine the next node based on the state after processing a questionnaire turn.
+    """
+    # Check if the next node is set to faq_after_answer
     if state.get("next_node") == "faq_after_answer":
         logger.info("Routing questionnaire → faq_after_answer")
         return "faq_after_answer"
-    # Task 8: if not_interested set during greeting flow, route to end
+    
+    # Check if the next node is set to not_interested
     if state.get("next_node") == "not_interested":
         logger.info("Routing questionnaire → end (not_interested from greeting)")
         return "end"
+    
+    # Check if the call has ended
     if state.get("call_ended"):
         logger.info("Call ended, routing to airtable")
         return "airtable"
+    
     logger.info("Waiting for next user turn")
     return END  # wait for next user turn
 
 
 def route_after_end(state: LeadState) -> str:
+    """
+    Determine the next node after the end node, typically routing to Airtable for logging.
+    """
     logger.info("Routing from end_node to airtable")
     return "airtable"
 
 
 def build_graph() -> StateGraph:
+    """
+    Build and return the state graph for the agent.
+    """
     logger.info("Building agent graph")
     graph = StateGraph(LeadState)
 
     graph.add_node("intent_router",   intent_router_node)
     graph.add_node("questionnaire",   questionnaire_node)
     graph.add_node("faq",             faq_node)
-    graph.add_node("faq_after_answer", faq_node)   # Task 2: same function, separate node reference
+    graph.add_node("faq_after_answer", faq_node)
     graph.add_node("repeat",          repeat_node)
     graph.add_node("end",             end_node)
     graph.add_node("airtable",        airtable_node)
 
+    # Initial entry point is the intent router
     graph.set_entry_point("intent_router")
 
     graph.add_conditional_edges("intent_router", route_after_intent, {
