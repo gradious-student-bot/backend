@@ -11,7 +11,7 @@
         "lms": "Proprietary learning portal called Leap — built for practice-first, project-based learning",
         "mentors": {
             "description": "Industry professionals with hands-on experience at top tech and financial companies",
-            "background_companies": ["Microsoft", "JP Morgan", "Gradious AI", "Kore.ai", "Amazon", "Goldman Sachs"],
+            "background_companies": ["Microsoft", "JP Morgan", "Gradious AI", "Kore.ai"],
             "what_they_do": [
                 "1:1 doubt clearing sessions",
                 "Code reviews and project feedback",
@@ -56,10 +56,16 @@
     },
     "placements": {
         "assistance": true,
-        "avg_package": "4–8 LPA",
-        "partnered_companies": ["Microsoft", "JP Morgan", "Kore.ai", "Synchrony", "Accenture", "Persistent Systems", "Mphasis", "Hexaware"],
-        "placement_rate": "85% within 3 months of completion",
-        "placement_description": "We have partnered with product-based and tech-first companies who actively hire trained candidates from Gradious. Our placement support includes resume prep, mock interviews, and direct referrals to our hiring partners."
+        "highest_package": "40 LPA",
+        "avg_package": "6.4 LPA",
+        "placement_rate": "70% of eligible students placed within 3 months",
+        "partnered_companies_type": "Product-based and tech-first companies",
+        "placement_description": "We have partnered with product-based companies that actively hire trained candidates from Gradious. Our placement support includes resume preparation, mock interviews, and direct referrals to our hiring partners.",
+        "for_more_details": "For specific company names, active openings, and detailed placement process — our admissions expert can walk you through everything on a call."
+    },
+    "admissions": {
+        "batch_frequency": "New live batches start every 2nd week of the month",
+        "enrollment_process": "Contact our admissions team or schedule a call with an expert for exact upcoming batch dates and seat availability."
     },
     "courses": {
         "fullstack_batch": {
@@ -69,6 +75,10 @@
             "modes": ["online", "offline"],
             "class_types": ["self-paced", "live-classes"],
             "platform_access": "1 year",
+            "batch_schedule": {
+                "live": "New batches start every 2nd week of the month",
+                "self_paced": "Start anytime — self-paced courses have no fixed batch date"
+            },
             "course_overview": {
                 "what_you_will_learn": [
                     "Programming fundamentals and problem solving",
@@ -101,6 +111,10 @@
             "modes": ["online", "offline"],
             "class_types": ["self-paced", "live-classes"],
             "platform_access": "1 year",
+            "batch_schedule": {
+                "live": "New batches start every 2nd week of the month",
+                "self_paced": "Start anytime — self-paced courses have no fixed batch date"
+            },
             "course_overview": {
                 "what_you_will_learn": [
                     "Python programming and data foundations",
@@ -127,6 +141,10 @@
             "eligibility": "Final year students and passed outs",
             "modes": ["online", "offline"],
             "class_types": ["self-paced", "live-classes"],
+            "batch_schedule": {
+                "live": "New batches start every 2nd week of the month",
+                "self_paced": "Start anytime — self-paced courses have no fixed batch date"
+            },
             "course_overview": {
                 "what_you_will_learn": [
                     "Program Flow and Introduction",

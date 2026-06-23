@@ -239,16 +239,18 @@ Offline Advantage : {mentors["offline_note"]}
 
 
 def build_placement_context(kb: dict) -> str:
+    """Task 9: Updated to use new placement fields, no company names list."""
     logger.info("Building placement context")
     p = kb["placements"]
-    companies = ", ".join(p["partnered_companies"])
     return f"""
 PLACEMENT SUPPORT
-Placement Assistance : {"Yes" if p["assistance"] else "No"}
-Average Package      : {p["avg_package"]}
-Placement Rate       : {p["placement_rate"]}
-Partnered Companies  : {companies}
-About Placements     : {p.get("placement_description", "")}
+Assistance            : {"Yes" if p["assistance"] else "No"}
+Highest Package       : {p.get("highest_package", "N/A")}
+Average Package       : {p.get("avg_package", "N/A")}
+Placement Rate        : {p.get("placement_rate", "N/A")}
+Partner Companies     : {p.get("partnered_companies_type", "N/A")}
+About Placements      : {p.get("placement_description", "")}
+For More Details      : {p.get("for_more_details", "")}
 """.strip()
 
 
@@ -272,6 +274,15 @@ def build_complete_course_context(kb: dict, course: str) -> str:
     campus_note = c.get("campus_note", "")
     class_types = c.get("class_types", ["self-paced", "live-classes"])
     modes       = c.get("modes", ["online", "offline"])
+
+    # Task 4: batch_schedule block
+    batch_sched = c.get("batch_schedule")
+    batch_block = ""
+    if batch_sched:
+        batch_block = f"""
+BATCH SCHEDULE
+Live Classes     : {batch_sched.get("live", "N/A")}
+Self-Paced       : {batch_sched.get("self_paced", "N/A")}"""
 
     # Campus courses only have self-paced
     if "live" in c:
@@ -302,7 +313,7 @@ SELF-PACED
 Duration         : {_get_duration(c, "self")}
 Fee              : {c["self"]["fee_structure"]}
 Platform Access  : {_get_platform_access(c, "self")}
-{live_block}
+{live_block}{batch_block}
 """
 
 

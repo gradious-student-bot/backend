@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from openai import OpenAI
 from agent.state import LeadState
 from config import OPENAI_API_KEY
@@ -14,16 +14,16 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # Field schema sent to LLM so it knows what to extract and what's pending
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Task 7: removed budget_range
+# Tasks 8 + 12: removed referral_source, added looking_for_job
 ALL_FIELDS = {
     "course_interest":   "Course the student wants — one of: fullstack_batch, ai_batch, dsa_batch",
-    "student_status":    "Whether student is currently studying or already graduated — values: student | graduated",
+    "student_status":    "Whether student is currently studying, already graduated, or a working professional — values: student | graduated | working_professional",
     "current_year":      "Current academic year if student (e.g. 2nd year, 3rd year) — only for student status",
     "passout_year":      "Year of graduation or expected passout (e.g. 2026, 2027)",
     "department":        "Branch or department (e.g. CSE, ECE, IT, Mechanical)",
     "training_mode":     "Preferred training mode — values: online | offline",
     "class_type":        "If online: self_paced or live — only relevant when training_mode is online",
-    "referral_source":   "How the student heard about Gradious (e.g. Instagram, friend, YouTube)",
+    "looking_for_job":   "Whether the person is currently looking for a job (only for graduated/working_professional)",
     "interested":        "Whether the student is interested in joining — values: yes | no",
     "join_date":         "When the student plans to start — only if interested is yes",
     "onboarding_requested":"Whether the student wants the onboarding form sent to their email address — values: yes | no",
@@ -35,6 +35,7 @@ ALL_FIELDS = {
 CONDITIONAL_FIELDS = {
     "current_year":      lambda af: af.get("student_status") == "student",
     "class_type":        lambda af: af.get("training_mode") == "online",
+    "looking_for_job":   lambda af: af.get("student_status") in ("graduated", "working_professional"),
     "join_date":         lambda af: str(af.get("interested", "")).lower() == "yes",
     "callback_time":     lambda af: str(af.get("callback_requested", "")).lower() == "yes",
     "onboarding_requested": lambda af: str(af.get("interested", "")).lower() == "yes",
@@ -62,15 +63,18 @@ the student has provided. A student may answer multiple fields in a single reply
 ## RULES
 1. Extract ONLY fields that the student has clearly provided in their reply.
 2. For course_interest: map to fullstack_batch / ai_batch / dsa_batch based on what student says.
-3. For student_status: map to "student" or "graduated".
+3. For student_status: map to "student", "graduated", or "working_professional".
 4. For training_mode: map to "online" or "offline".
 5. For class_type: map to "self_paced" or "live".
 6. For interested / callback_requested: map to "yes" or "no".
 7. For passout_year: if student is in Nth year of a 4-year degree and mentions current year,
    compute passout_year = {today_year} + (4 - current_year_number).
    Example: 3rd year in 2026 → passout_year = 2027.
-8. Only extract fields with high confidence. Do not guess.
-9. Return null for any field you cannot confidently extract.
+8. For looking_for_job: boolean — true if the person says they are currently looking for a job
+   or actively applying, false otherwise. Only extract if student_status is graduated or
+   working_professional.
+9. Only extract fields with high confidence. Do not guess.
+10. Return null for any field you cannot confidently extract.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only. No explanation, no markdown.
@@ -83,7 +87,7 @@ Return STRICT JSON only. No explanation, no markdown.
     "department": "<value or null>",
     "training_mode": "<value or null>",
     "class_type": "<value or null>",
-    "referral_source": "<value or null>",
+    "looking_for_job": "<true | false | null>",
     "interested": "<value or null>",
     "join_date": "<value or null>",
     "onboarding_requested": "<value or null>",
@@ -122,6 +126,18 @@ Ask the next pending question to the student in a natural, conversational phone 
 - Do not repeat the student's name repeatedly.
 - Keep the question short — this is a phone call, not a form.
 - Sound natural and vary phrasing across the conversation.
+
+## QUESTION STYLE RULES
+- When asking about academic details (department, year, passout year), do NOT give examples.
+  Ask the question plainly. Wrong: "Which branch are you from? Like CSE, IT, or ECE?"
+  Right: "Which branch are you from?"
+- Exception: when asking about which course the student is interested in, you MAY mention
+  the course names (Full Stack + Gen AI, AI Stack) since these are Gradious-specific and
+  the student may not know them otherwise.
+- Keep every question to one sentence where possible.
+- For student_status: the options are currently studying, graduated, or working professional.
+  You may mention these three options naturally.
+- If student_status is working professional, ask which year they graduated in, not which year they will graduate in.
 
 ## FILLED FIELDS (already collected — do NOT ask again)
 {filled_fields}
@@ -198,15 +214,22 @@ Tone guidelines:
 You are a phone-based admissions counselor at Gradious, a tech training institute in Hyderabad.
 
 ## OBJECTIVE
-The student has confirmed their identity. Now introduce yourself briefly and ask whether
-this is a good time to speak.
+The student has confirmed their identity. Introduce yourself briefly and immediately ask the
+first question of the questionnaire in the same response — without waiting for another turn.
 
 ## RULES
 - Introduce yourself as Bindhu from Gradious (1 short sentence).
 - Mention you are calling about their course interest.
-- Ask: "Is this a good time to speak?"
+- After the warm introduction sentence, immediately ask the first question of the questionnaire
+  in the same response. The first question is about which course the student is interested in.
+  Do not wait — ask it right away in a natural, flowing way.
+  Example style: "Great to connect with you, [Name]. I'm calling from Gradious — we noticed you
+  showed interest in our courses and wanted to help. So, which course are you looking at —
+  Full Stack or AI?" (This is style inspiration only — generate your own version.)
+- DO NOT create new courses by yourself — only mention the two options [Full Stack, AI], even if the student mentioned something else.
 - Keep the whole message under 3 sentences.
 - Sound natural, not scripted.
+
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
@@ -253,8 +276,8 @@ Return STRICT JSON only.
   "response": "<your response>"
 }}"""
 
-# Task 8: Step 3 — confirm interest
-CONFIRM_INTEREST_SYSTEM_PROMPT = """\
+# Batch 4 Task 2: Step 3 — confirm interest → combined transition + first questionnaire question
+INTRO_WITH_FIRST_QUESTION_PROMPT = """\
 ## PERSONA
 You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
 on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
@@ -265,30 +288,43 @@ and always make the student feel that Gradious is the right place for their care
 Tone guidelines:
 - Calm and confident — never rushed or scripted-sounding.
 - Use natural fillers where appropriate: "Sure!", "Got it.", "Ok, so...", "Right."
-- Highlight one genuine benefit or differentiator per response when opportunity arises
-  (e.g. placement support, practice-based learning, industry mentors) — but don't overdo it.
-- If a student seems hesitant, gently acknowledge and address the hesitation before moving on.
 - Do not use corporate speak, buzzwords, or filler phrases like "Absolutely!", "Certainly!",
   "Great question!", "Definitely!".
 - Speak in short sentences — this is a phone call, not an essay.
 
 ## ROLE
-You are a phone-based admissions counselor at Gradious.
+You are a phone-based admissions counselor at Gradious, a tech training institute in Hyderabad.
 
 ## OBJECTIVE
-The student expressed interest in learning more. Generate a brief, warm transition into
-the main questionnaire. You are about to ask them about which course they're interested in.
+Generate a single natural spoken response that does TWO things seamlessly:
+1. Gives a warm, brief transition phrase acknowledging the student's interest and setting up
+   a quick info-gathering conversation.
+2. Immediately asks the first questionnaire question — which course they are interested in —
+   as a natural continuation of the same sentence or the very next sentence.
+
+## COURSE OPTIONS TO MENTION
+- Full Stack + Gen AI
+- AI Stack (ML + Generative AI)
 
 ## RULES
-- Acknowledge their interest briefly (1 sentence).
-- Transition naturally: "Let me get a few details to help point you in the right direction."
-- Keep it to 2 sentences max.
-- Sound natural, not scripted.
+- The transition and the question must flow as one cohesive spoken response.
+- Do not use a list or bullet format — this is a phone call.
+- The course names should be mentioned naturally so the student knows their options.
+- Keep the entire response under 3 sentences total.
+- Do not say "Let me ask you a few questions" and then pause — just ask the course question.
+- DO NOT create new courses by yourself — only mention the two options above, even if the student mentioned something else.
+
+## STYLE EXAMPLES (inspiration only — LLM generates its own version)
+"Great! So to help you out, I just need a couple of details — starting with, which course
+are you looking at, the Full Stack + Gen AI one or the AI Stack?"
+
+"Perfect. I'll just get a few quick details from you — which course are you interested in,
+Full Stack or the AI program?"
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
 {{
-  "response": "<your transition message>"
+  "response": "<single flowing spoken response that ends with the course question>"
 }}"""
 
 WRAP_UP_SYSTEM_PROMPT = """\
@@ -436,11 +472,16 @@ then gently re-ask the pending question.
 - One calm acknowledgement sentence. No confrontation.
 - Redirect to the pending question naturally.
 - Keep it very brief.
+- If the student's message suggests they need help beyond what this call can provide
+  (e.g. they mention a very specific technical question, pricing negotiation, or complex
+  eligibility scenario), offer to schedule a call with an admissions expert.
+  In that case, set "schedule_expert": true in the JSON.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
 {{
-  "response": "<your response>"
+  "response": "<your response>",
+  "schedule_expert": false
 }}"""
 
 IRRELEVANT_SYSTEM_PROMPT = """\
@@ -471,10 +512,17 @@ back to the conversation and re-ask the pending question.
 ## PENDING QUESTION
 {pending_question_description}
 
+## RULES
+- If the student's message suggests they need help beyond what this call can provide
+  (e.g. they mention a very specific technical question, pricing negotiation, or complex
+  eligibility scenario), offer to schedule a call with an admissions expert.
+  In that case, set "schedule_expert": true in the JSON.
+
 ## OUTPUT FORMAT
 Return STRICT JSON only.
 {{
-  "response": "<your response>"
+  "response": "<your response>",
+  "schedule_expert": false
 }}"""
 
 CONFUSED_SYSTEM_PROMPT = """\
@@ -509,11 +557,16 @@ with a brief hint to help them answer.
 - Rephrase simply — do not add new information.
 - Keep it short (1–2 sentences).
 - Sound natural.
+- If the student's message suggests they need help beyond what this call can provide
+  (e.g. they mention a very specific technical question, pricing negotiation, or complex
+  eligibility scenario), offer to schedule a call with an admissions expert.
+  In that case, set "schedule_expert": true in the JSON.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
 {{
-  "response": "<your rephrased question>"
+  "response": "<your rephrased question>",
+  "schedule_expert": false
 }}"""
 
 CONFIRM_SWITCH_SYSTEM_PROMPT = """\
@@ -571,15 +624,147 @@ Return STRICT JSON only.
   "response": "<your response>"
 }}"""
 
+# Task 2 (Batch 3): Small talk handling prompt
+SMALL_TALK_SYSTEM_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful. Your goal is to understand the student's
+situation and guide them toward the right course. You are never pushy, but you are
+subtly persuasive — you highlight genuine benefits, create mild urgency where appropriate,
+and always make the student feel that Gradious is the right place for their career growth.
+
+Tone guidelines:
+- Calm and confident — never rushed or scripted-sounding.
+- Use natural fillers where appropriate: "Sure!", "Got it.", "Ok, so...", "Right."
+- Do not use corporate speak, buzzwords, or filler phrases like "Absolutely!", "Certainly!",
+  "Great question!", "Definitely!".
+- Speak in short sentences — this is a phone call, not an essay.
+
+## ROLE
+You are a phone-based admissions counselor at Gradious on a call with a student.
+
+## OBJECTIVE
+The student has said something conversational (a greeting, pleasantry, or asked about who you are).
+Respond warmly, then naturally re-ask the pending question.
+
+## RULES
+- If the student greeted you (Hi, Hello, Hey) — greet them back warmly and briefly.
+- If the student asked "What are you?", "Are you a bot?", "Who am I speaking to?", or
+  "Are you a real person?" — be honest: say you are an AI assistant from Gradious, here
+  to help with course information and collect a few details.
+- After your small talk response, naturally re-ask the pending question in the same message.
+- Keep the total response to 2-3 sentences max.
+- Sound natural, not scripted.
+
+## PENDING QUESTION (re-ask this after your response)
+{pending_question}
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your response + re-ask of pending question>"
+}}"""
+
+# Batch 4 Task 1: Pre-identity small talk prompt — used when greeting_step == 0
+PRE_IDENTITY_SMALL_TALK_SYSTEM_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful.
+
+Tone guidelines:
+- Warm and natural — not scripted or robotic.
+- Speak in short, flowing sentences as you would on a real phone call.
+- Do not use corporate filler words like "Absolutely!", "Certainly!", "Definitely!".
+
+## ROLE
+You are an AI assistant from Gradious, a tech training institute, making an outbound call to a lead.
+
+## CONTEXT
+You just called this person and said "Am I speaking with {lead_name}?" as your opening line.
+Instead of a direct yes or no, they said: "{user_message}"
+
+## OBJECTIVE
+Respond naturally in a single flowing spoken response that does all of the following seamlessly:
+1. If they greeted you ("Hi", "Hello") — greet them back briefly and warmly.
+2. Introduce yourself as an AI assistant calling from Gradious.
+3. Briefly state the purpose of the call — the person had shown interest in joining Gradious
+   courses, and you are calling to help them learn more and find the right course.
+4. Re-ask the identity question naturally as the final sentence: "Am I speaking with {lead_name}?"
+
+## STYLE GUIDANCE
+The response must feel like one cohesive, natural spoken sentence — not four separate sentences
+bolted together. Keep it brief and conversational.
+
+Example style (inspiration only — generate your own version):
+"Hey! I'm an AI assistant from Gradious — you'd shown some interest in our courses recently,
+so we're reaching out to help you find the right one. Am I speaking with Rahul?"
+
+## RULES
+- Do not say more than 3 sentences total.
+- The last sentence must always be "Am I speaking with {lead_name}?" (or a natural variation of it).
+- Sound warm and human, not robotic.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<natural spoken response ending with the identity question>"
+}}"""
+
+# Task 6: ASK_CORRECTED_NAME_PROMPT
+ASK_CORRECTED_NAME_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful.
+
+Tone guidelines:
+- Calm and confident — never rushed or scripted-sounding.
+- Speak in short sentences — this is a phone call, not an essay.
+
+## ROLE
+You are a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The person on the call is not the person we expected. Apologize briefly and naturally,
+then ask for their name. Keep it short and warm.
+Example style: "Oh, I'm sorry about that! Could I get your name please?"
+(Style inspiration only — generate your own version.)
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "response": "<your apology + name request>"
+}}"""
+
+# Task 6: IDENTITY_CONFIRM_EXTRACT_PROMPT
+IDENTITY_CONFIRM_EXTRACT_PROMPT = """\
+## ROLE
+You are a data extraction assistant.
+
+## OBJECTIVE
+Determine if the user confirmed or denied the identity question.
+
+## USER MESSAGE
+{user_message}
+
+## RULES
+- Return confirmed: true if the user said yes, speaking, correct, that's me, etc.
+- Return confirmed: false if the user said no, wrong number, wrong person, not me, etc.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+  "confirmed": true
+}}"""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _llm_json(messages: list) -> dict:
+def _llm_json(messages: list, temperature: float = 0.6) -> dict:
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
-        temperature=0.4,
+        temperature=temperature,
         response_format={"type": "json_object"},
         messages=messages,
     )
@@ -597,11 +782,12 @@ def _fields_description() -> str:
 
 
 def _get_next_field(af: dict) -> str | None:
-    # Task 7: removed budget_range from order
+    # Task 8: removed referral_source
+    # Task 12: added looking_for_job (conditional on graduated/working_professional)
     order = [
         "course_interest", "student_status", "current_year",
         "passout_year", "department", "training_mode", "class_type",
-        "referral_source", "interested",
+        "looking_for_job", "interested",
         "join_date","onboarding_requested", "callback_requested", "callback_time",
     ]
     for field in order:
@@ -620,12 +806,20 @@ def _apply_extracted(state: LeadState, extracted: dict):
     for key, value in extracted.items():
         if value is None or value == "null":
             continue
+        # Task 12: handle looking_for_job as boolean
+        if key == "looking_for_job":
+            if isinstance(value, bool):
+                bool_val = value
+            else:
+                bool_val = str(value).lower() in ("true", "yes", "1")
+            af[key] = bool_val
+            state["looking_for_job"] = bool_val
+            continue
         af[key] = value
-        # Mirror to top-level
-        # Task 7: removed budget_range from mirror map
+        # Mirror to top-level; referral_source removed (Task 8)
         if key in ("course_interest", "student_status", "current_year", "passout_year",
                    "department", "training_mode", "class_type",
-                   "referral_source", "join_date", "callback_time"):
+                   "join_date", "callback_time"):
             state[key] = value  # type: ignore
         if key == "interested":
             state["interested"] = str(value).lower() == "yes"
@@ -648,7 +842,7 @@ def _set_response(state: LeadState, text: str):
 
 def get_recent_messages(state: LeadState, n: int = 10) -> list:
     """
-    Task 6: Returns the last n messages from state["messages"] formatted as OpenAI
+    Returns the last n messages from state["messages"] formatted as OpenAI
     chat message dicts: {"role": "user"|"assistant", "content": "..."}.
     Skips the very last message (which is the current user input, already handled separately).
     """
@@ -665,6 +859,51 @@ def get_recent_messages(state: LeadState, n: int = 10) -> list:
     return result
 
 
+def _parse_callback_datetime(raw: str) -> str | None:
+    """
+    Task 13: Uses LLM to parse a natural language time expression into ISO 8601 datetime.
+    Sends today's date as context so relative expressions like "tomorrow" resolve correctly.
+    Returns ISO string or None if parsing fails.
+    """
+    today_iso = datetime.now().isoformat()
+    system_prompt = f"""\
+## ROLE
+You are a datetime parser.
+
+## OBJECTIVE
+Convert a natural language time expression into an ISO 8601 datetime string.
+
+## CONTEXT
+Today's date and time: {today_iso}
+The user is located in Hyderabad, India (IST, UTC+5:30).
+
+## INSTRUCTIONS
+1. Parse the given time expression relative to today's date.
+2. If only a time is given (e.g. "3pm"), assume today if it's in the future, otherwise tomorrow.
+3. If only a day is given (e.g. "tomorrow", "Monday"), assume 10:00 AM IST.
+4. If the expression is ambiguous or unparseable, return null.
+5. Return STRICT JSON only.
+
+## OUTPUT FORMAT
+{{"iso_datetime": "2026-06-25T15:00:00" | null}}"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": raw},
+            ],
+        )
+        parsed = json.loads(resp.choices[0].message.content)
+        return parsed.get("iso_datetime") or None
+    except Exception as e:
+        logger.warning(f"[Questionnaire] _parse_callback_datetime error: {e}")
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main node
 # ─────────────────────────────────────────────────────────────────────────────
@@ -679,22 +918,116 @@ def questionnaire_node(state: LeadState) -> LeadState:
 
     logger.info(f"[Questionnaire] Lead={state['lead_id']} intent={intent} q_key={current_q_key}")
 
+    # ── Batch 4 Task 1: small_talk handling — pre-identity vs. mid-conversation ──
+    if intent == "small_talk":
+        greeting_step_for_small_talk = state.get("greeting_step", 0)
+        if greeting_step_for_small_talk == 0:
+            # Pre-identity: introduce agent + company + re-ask identity question
+            lead_name = state.get("lead_name", "you")
+            result = _llm_json(
+                [{
+                    "role": "system",
+                    "content": PRE_IDENTITY_SMALL_TALK_SYSTEM_PROMPT.format(
+                        lead_name=lead_name,
+                        user_message=user_text,
+                    ),
+                }],
+                temperature=0.6,
+            )
+            response = result.get(
+                "response",
+                f"Hi there! I'm an AI assistant calling from Gradious — you'd recently shown interest in our courses, so I'm reaching out to help. Am I speaking with {lead_name}?"
+            )
+        else:
+            # Mid-conversation: respond to small talk and re-ask the pending question
+            pending_question = state.get("last_agent_response", "")
+            result = _llm_json([{
+                "role": "system",
+                "content": SMALL_TALK_SYSTEM_PROMPT.format(pending_question=pending_question),
+            }])
+            response = result.get("response", f"Hi there! Anyway, {pending_question}")
+        _set_response(state, response)
+        return state
+
     # ── Task 8: Greeting state machine ───────────────────────────────────────
     greeting_step = state.get("greeting_step", 0)
 
-    # Step 1 — confirm_identity (already existed, updated for new flow)
+    # Step 1 — confirm_identity
     if current_q_key == "confirm_identity":
-        affirmatives = {"yes", "yeah", "yep", "sure", "correct", "right", "speaking", "that's me", "this is"}
-        is_yes = any(w in user_text.lower() for w in affirmatives)
+        # Task 6: use LLM to detect yes/no for identity confirmation
+        try:
+            id_result = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[{
+                    "role": "system",
+                    "content": IDENTITY_CONFIRM_EXTRACT_PROMPT.format(user_message=user_text),
+                }],
+            )
+            id_parsed = json.loads(id_result.choices[0].message.content)
+            is_yes = bool(id_parsed.get("confirmed", False))
+        except Exception:
+            # Fallback to keyword check
+            affirmatives = {"yes", "yeah", "yep", "sure", "correct", "right", "speaking", "that's me", "this is"}
+            is_yes = any(w in user_text.lower() for w in affirmatives)
 
         if is_yes:
-            # Task 8: identity confirmed → ask if it's a good time (Step 2)
+            # Task 3: identity confirmed → POST_CONFIRM generates intro + first question combined
+            # Task 3: set current_question_key to course_interest immediately
             result = _llm_json([{"role": "system", "content": POST_CONFIRM_SYSTEM_PROMPT}])
-            response = result.get("response", "Hi, this is Bindhu from Gradious. Is this a good time to speak?")
+            response = result.get("response", "Hi, this is Bindhu from Gradious. Which course are you looking at — Full Stack or AI?")
             state["greeting_step"] = 1
-            state["current_question_key"] = "confirm_timing"
+            state["current_question_key"] = "course_interest"
         else:
-            response = f"Sorry about that — if you are {state.get('lead_name', 'the person we registered')}, please let me know so I can continue."
+            # Task 6: wrong person — ask for correct name
+            result = _llm_json([{"role": "system", "content": ASK_CORRECTED_NAME_PROMPT}])
+            response = result.get("response", "Oh, I'm sorry about that! Could I get your name please?")
+            state["current_question_key"] = "ask_corrected_name"
+        _set_response(state, response)
+        return state
+
+    # Task 6: ask_corrected_name step
+    if current_q_key == "ask_corrected_name":
+        # Extract the corrected name
+        try:
+            name_extract_result = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[{
+                    "role": "system",
+                    "content": """\
+## ROLE
+You are a name extraction assistant.
+
+## OBJECTIVE
+Extract the person's name from their message.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{"name": "<extracted name or null>"}""",
+                }, {
+                    "role": "user",
+                    "content": user_text,
+                }],
+            )
+            name_parsed = json.loads(name_extract_result.choices[0].message.content)
+            extracted_name = name_parsed.get("name")
+        except Exception as e:
+            logger.error(f"[Questionnaire] Name extraction error: {e}")
+            extracted_name = None
+
+        if extracted_name:
+            state["corrected_name"] = extracted_name
+            state["lead_name"] = extracted_name
+            logger.info(f"[Questionnaire] Corrected name: {extracted_name}")
+
+        # Proceed to the intro+first question (same POST_CONFIRM_SYSTEM_PROMPT flow)
+        result = _llm_json([{"role": "system", "content": POST_CONFIRM_SYSTEM_PROMPT}])
+        response = result.get("response", "Nice to meet you! I'm Bindhu from Gradious — which course are you looking at?")
+        state["greeting_step"] = 1
+        state["current_question_key"] = "course_interest"
         _set_response(state, response)
         return state
 
@@ -725,7 +1058,7 @@ def questionnaire_node(state: LeadState) -> LeadState:
         _set_response(state, response)
         return state
 
-    # Step 3 — confirm_interest (Task 8)
+    # Step 3 — confirm_interest (Batch 4 Task 2)
     if current_q_key == "confirm_interest":
         affirmatives = {"yes", "yeah", "yep", "sure", "ok", "okay", "of course", "interested",
                         "go ahead", "yes please", "tell me"}
@@ -752,6 +1085,13 @@ def questionnaire_node(state: LeadState) -> LeadState:
             state["current_question_key"] = "course_interest"
 
             _set_response(state, response)
+            return state
+        else:
+            # Not interested → route to end_node
+            logger.info("[Questionnaire] Student not interested after greeting → routing to end")
+            state["next_node"] = "not_interested"
+            state["disposition"] = "not_interested"
+            state["call_ended"] = False  # end_node will set this
             return state
 
     # Task 1: handle pending_switch confirmation
@@ -789,7 +1129,16 @@ def questionnaire_node(state: LeadState) -> LeadState:
             response = result.get("response", "Sure! What time works best for a callback from our team?")
             state["current_question_key"] = "callback_time"
         else:
-            _apply_extracted(state, {"callback_time": user_text})
+            raw_callback = user_text
+            # Task 13: store raw and parse ISO
+            state["callback_time_raw"] = raw_callback
+            iso_dt = _parse_callback_datetime(raw_callback)
+            if iso_dt:
+                state["callback_time"] = iso_dt
+                _apply_extracted(state, {"callback_time": iso_dt})
+            else:
+                logger.warning(f"[Questionnaire] Could not parse callback datetime from: {raw_callback}")
+                _apply_extracted(state, {"callback_time": raw_callback})
             state["callback_requested"] = True
             state["call_ended"] = True
             result = _llm_json([{
@@ -810,6 +1159,10 @@ def questionnaire_node(state: LeadState) -> LeadState:
             + recent
             + [{"role": "user", "content": user_text}]
         )
+        if result.get("schedule_expert"):
+            logger.info("[Questionnaire] Rude response triggered expert scheduling")
+            state["human_agent_requested"] = True
+            state["next_node"] = "human_agent"
         _set_response(state, result.get("response", "I understand. Let me know when you're ready to continue."))
         return state
 
@@ -823,6 +1176,10 @@ def questionnaire_node(state: LeadState) -> LeadState:
             + recent
             + [{"role": "user", "content": user_text}]
         )
+        if result.get("schedule_expert"):
+            logger.info("[Questionnaire] Irrelevant response triggered expert scheduling")
+            state["human_agent_requested"] = True
+            state["next_node"] = "human_agent"
         _set_response(state, result.get("response", "Let's get back on track — " + desc))
         return state
 
@@ -836,6 +1193,10 @@ def questionnaire_node(state: LeadState) -> LeadState:
             + recent
             + [{"role": "user", "content": user_text}]
         )
+        if result.get("schedule_expert"):
+            logger.info("[Questionnaire] Confused response triggered expert scheduling")
+            state["human_agent_requested"] = True
+            state["next_node"] = "human_agent"
         _set_response(state, result.get("response", desc))
         return state
 
@@ -848,7 +1209,6 @@ def questionnaire_node(state: LeadState) -> LeadState:
                 fields_description=_fields_description(),
                 filled_fields=_filled_summary(state["answered_fields"]),
             )
-            # Task 6: include recent message history in extraction call
             recent_extract = get_recent_messages(state, 10)
             extract_result = client.chat.completions.create(
                 model="gpt-4.1-mini",
@@ -862,6 +1222,27 @@ def questionnaire_node(state: LeadState) -> LeadState:
             )
             extracted = json.loads(extract_result.choices[0].message.content).get("extracted", {})
             logger.info(f"[Questionnaire] Extracted fields: {extracted}")
+
+            # Task 13: handle callback_time raw + ISO parsing
+            raw_callback = extracted.get("callback_time")
+            if raw_callback and raw_callback not in (None, "null"):
+                state["callback_time_raw"] = raw_callback
+                iso_dt = _parse_callback_datetime(raw_callback)
+                if iso_dt:
+                    extracted["callback_time"] = iso_dt
+                else:
+                    logger.warning(f"[Questionnaire] Could not parse callback datetime from: {raw_callback}")
+                    # Keep raw value in extracted so it still gets stored
+
+            # Task 13: handle join_date raw + ISO parsing
+            raw_join = extracted.get("join_date")
+            if raw_join and raw_join not in (None, "null"):
+                state["join_date_raw"] = raw_join
+                iso_join = _parse_callback_datetime(raw_join)
+                if iso_join:
+                    extracted["join_date"] = iso_join
+                else:
+                    logger.warning(f"[Questionnaire] Could not parse join_date datetime from: {raw_join}")
 
             # Task 1: detect if any switchable field is being changed mid-conversation
             af = state["answered_fields"]
@@ -1035,7 +1416,6 @@ def questionnaire_node(state: LeadState) -> LeadState:
 
     # ── 8. Ask next question ──────────────────────────────────────────────────
     state["current_question_key"] = next_key
-    # Task 6: include recent message history in next-question generation
     recent_q = get_recent_messages(state, 6)
     result = _llm_json(
         [{"role": "system", "content": NEXT_QUESTION_SYSTEM_PROMPT.format(
