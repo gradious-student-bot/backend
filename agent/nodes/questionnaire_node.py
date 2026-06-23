@@ -21,6 +21,7 @@ from agent.prompts.questionnaire_prompt import (
     CONFUSED_SYSTEM_PROMPT,
     CONFIRM_SWITCH_SYSTEM_PROMPT,
     BAD_TIMING_SYSTEM_PROMPT,
+    ONBOARDING_EMAIL_SYSTEM_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,6 @@ ALL_FIELDS = {
     "interested":           "Whether the student is interested in joining — values: yes | no",
     "join_date":            "When the student plans to start — only if interested is yes",
     "onboarding_requested": "Whether the student wants the onboarding form sent to their email address — values: yes | no",
-    "onboarding_requested":"Whether the student wants the onboarding form sent to their email address — values: yes | no",
     "callback_requested":   "Whether student wants a callback from admissions team — values: yes | no",
     "callback_time":        "Preferred time for the callback — only if callback_requested is yes",
 }
@@ -422,43 +422,69 @@ def questionnaire_node(state: LeadState) -> LeadState:
 
             if onboarding_yes and not state.get("onboarding_email_sent"):
 
-                if not state.get("email"):
+                receiver_email = (
+                    state.get("email")
+                    or state.get("lead_email")
+                    or state.get("student_email")
+                )
+
+                if not receiver_email:
 
                     logger.warning(
                         f"No email found for lead {state.get('lead_id')}"
                     )
 
-                    response = (
-                        "I don't seem to have your email address. "
-                        "Could you please share it so I can send the onboarding form?"
+                    result = _llm_json([{
+                        "role": "system",
+                        "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
+                            lead_name=state.get("lead_name", ""),
+                            email="",
+                            email_status="missing_email",
+                            answered_fields=_filled_summary(state.get("answered_fields", {})),
+                            last_user_reply=user_text,
+                        ),
+                    }])
+
+                    response = result.get(
+                        "response",
+                        "Could you please share your email address so I can send the onboarding form?"
                     )
 
                     _set_response(state, response)
                     return state
 
                 logger.info(
-                    f"Sending onboarding email to {state.get('email')}"
+                    f"Sending onboarding email to {receiver_email}"
                 )
 
                 success = send_onboarding_email(
                     student_name=state.get("lead_name", ""),
-                    receiver_email=state.get("email", ""),
+                    receiver_email=receiver_email,
                 )
 
                 if success:
 
                     logger.info(
-                        f"Onboarding email sent to {state.get('email')}"
+                        f"Onboarding email sent to {receiver_email}"
                     )
 
                     state["onboarding_email_sent"] = True
                     state["answered_fields"]["onboarding_email_sent"] = True
 
-                    response = (
-                        "I've sent the onboarding form to your email address. "
-                        "Please check your inbox, and if you don't see it there, "
-                        "have a look in your spam or junk folder as well. "
-                        "Would you like someone from our admissions team to give you a callback?"
+                    result = _llm_json([{
+                        "role": "system",
+                        "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
+                            lead_name=state.get("lead_name", ""),
+                            email=receiver_email,
+                            email_status="sent_success",
+                            answered_fields=_filled_summary(state.get("answered_fields", {})),
+                            last_user_reply=user_text,
+                        ),
+                    }])
+
+                    response = result.get(
+                        "response",
+                        "I've sent the onboarding form to your email. Would you like someone from our admissions team to give you a callback?"
                     )
 
                     state["current_question_key"] = "callback_requested"
@@ -469,12 +495,23 @@ def questionnaire_node(state: LeadState) -> LeadState:
                 else:
 
                     logger.error(
-                        f"Failed sending onboarding email to {state.get('email')}"
+                        f"Failed sending onboarding email to {receiver_email}"
                     )
 
-                    response = (
-                        "I'm sorry, I couldn't send the onboarding form right now. "
-                        "Our team will try again shortly."
+                    result = _llm_json([{
+                        "role": "system",
+                        "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
+                            lead_name=state.get("lead_name", ""),
+                            email=receiver_email,
+                            email_status="sent_failed",
+                            answered_fields=_filled_summary(state.get("answered_fields", {})),
+                            last_user_reply=user_text,
+                        ),
+                    }])
+
+                    response = result.get(
+                        "response",
+                        "I'm sorry, I couldn't send the onboarding form right now. Our team will try again shortly."
                     )
 
                     _set_response(state, response)
