@@ -21,6 +21,8 @@ def airtable_node(state: LeadState) -> LeadState:
         "referral_source":     state.get("referral_source"),
         "interested":          state.get("interested"),
         "join_date":           state.get("join_date"),
+        "onboarding_requested": state.get("onboarding_requested"),
+        "onboarding_email_sent": state.get("onboarding_email_sent"),
         "callback_requested":  state.get("callback_requested"),
         "callback_time":       state.get("callback_time"),
         "disposition":         state.get("disposition", "unknown"),

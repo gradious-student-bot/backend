@@ -40,6 +40,8 @@ class LeadState(TypedDict):
     referral_source: Optional[str]
     interested: Optional[bool]
     join_date: Optional[str]
+    onboarding_requested: Optional[bool]
+    onboarding_email_sent: Optional[bool]
     callback_requested: Optional[bool]
     callback_time: Optional[str]
 

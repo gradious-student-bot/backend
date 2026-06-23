@@ -4,9 +4,11 @@ from datetime import date
 from openai import OpenAI
 from agent.state import LeadState
 from config import OPENAI_API_KEY
+from services.email_service import send_onboarding_email
 
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Field schema sent to LLM so it knows what to extract and what's pending
@@ -24,6 +26,7 @@ ALL_FIELDS = {
     "referral_source":   "How the student heard about Gradious (e.g. Instagram, friend, YouTube)",
     "interested":        "Whether the student is interested in joining — values: yes | no",
     "join_date":         "When the student plans to start — only if interested is yes",
+    "onboarding_requested":"Whether the student wants the onboarding form sent to their email address — values: yes | no",
     "callback_requested":"Whether student wants a callback from admissions team — values: yes | no",
     "callback_time":     "Preferred time for the callback — only if callback_requested is yes",
 }
@@ -34,6 +37,7 @@ CONDITIONAL_FIELDS = {
     "class_type":        lambda af: af.get("training_mode") == "online",
     "join_date":         lambda af: str(af.get("interested", "")).lower() == "yes",
     "callback_time":     lambda af: str(af.get("callback_requested", "")).lower() == "yes",
+    "onboarding_requested": lambda af: str(af.get("interested", "")).lower() == "yes",
 }
 
 # Task 1: fields that require confirmation if the student changes them mid-conversation
@@ -82,6 +86,7 @@ Return STRICT JSON only. No explanation, no markdown.
     "referral_source": "<value or null>",
     "interested": "<value or null>",
     "join_date": "<value or null>",
+    "onboarding_requested": "<value or null>",
     "callback_requested": "<value or null>",
     "callback_time": "<value or null>"
   }}
@@ -597,7 +602,7 @@ def _get_next_field(af: dict) -> str | None:
         "course_interest", "student_status", "current_year",
         "passout_year", "department", "training_mode", "class_type",
         "referral_source", "interested",
-        "join_date", "callback_requested", "callback_time",
+        "join_date","onboarding_requested", "callback_requested", "callback_time",
     ]
     for field in order:
         if field in af:
@@ -624,6 +629,13 @@ def _apply_extracted(state: LeadState, extracted: dict):
             state[key] = value  # type: ignore
         if key == "interested":
             state["interested"] = str(value).lower() == "yes"
+
+        if key == "onboarding_requested":
+            state["onboarding_requested"] = str(value).lower() == "yes"
+
+        if key == "onboarding_email_sent":
+            state["onboarding_email_sent"] = str(value).lower() == "yes"
+
         if key == "callback_requested":
             state["callback_requested"] = str(value).lower() == "yes"
 
@@ -721,20 +733,25 @@ def questionnaire_node(state: LeadState) -> LeadState:
         is_yes = any(w in text_lower for w in affirmatives)
 
         if is_yes:
-            result = _llm_json([{"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}])
-            response = result.get("response", "Got it. Let me get a few details to help point you in the right direction.")
+            result = _llm_json([
+                {"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}
+            ])
+
+            transition = result.get(
+                "response",
+                "Got it. Let me get a few details to help point you in the right direction."
+            )
+
+            course_question = (
+                "Which course are you interested in — full stack development, AI, or DSA?"
+            )
+
+            response = f"{transition} {course_question}"
+
             state["greeting_step"] = 3
             state["current_question_key"] = "course_interest"
+
             _set_response(state, response)
-            return state
-        else:
-            # Not interested → route to end_node
-            logger.info("[Questionnaire] Student not interested after greeting → routing to end")
-            state["next_node"] = "not_interested"
-            state["disposition"] = "not_interested"
-            # Return without response — end_node will handle it
-            # But we need to still provide a response for the end node path
-            state["call_ended"] = False  # end_node will set this
             return state
 
     # Task 1: handle pending_switch confirmation
@@ -879,8 +896,84 @@ def questionnaire_node(state: LeadState) -> LeadState:
             # No switch — apply extracted fields normally
             _apply_extracted(state, extracted)
 
-        except Exception as e:
-            logger.error(f"[Questionnaire] Extraction error: {e}")
+            # ---------------------------------------------------
+            # EMAIL RECEIVED CHECK
+            # ---------------------------------------------------
+
+            # ---------------------------------------------------
+            # SEND ONBOARDING EMAIL
+            # ---------------------------------------------------
+
+            onboarding_yes = (
+                str(extracted.get("onboarding_requested", "")).lower() == "yes"
+                or state.get("onboarding_requested") is True
+                or str(state["answered_fields"].get("onboarding_requested", "")).lower() == "yes"
+            )
+
+            if onboarding_yes and not state.get("onboarding_email_sent"):
+
+                if not state.get("email"):
+
+                    logger.warning(
+                        f"No email found for lead {state.get('lead_id')}"
+                    )
+
+                    response = (
+                        "I don't seem to have your email address. "
+                        "Could you please share it so I can send the onboarding form?"
+                    )
+
+                    _set_response(state, response)
+                    return state
+
+                logger.info(
+                    f"Sending onboarding email to {state.get('email')}"
+                )
+
+                success = send_onboarding_email(
+                    student_name=state.get("lead_name", ""),
+                    receiver_email=state.get("email", ""),
+                )
+
+                if success:
+
+                    logger.info(
+                        f"Onboarding email sent to {state.get('email')}"
+                    )
+
+                    state["onboarding_email_sent"] = True
+                    state["answered_fields"]["onboarding_email_sent"] = True
+
+                    response = (
+                        "I've sent the onboarding form to your email address. "
+                        "Please check your inbox, and if you don't see it there, "
+                        "have a look in your spam or junk folder as well. "
+                        "Would you like someone from our admissions team to give you a callback?"
+                    )
+
+                    state["current_question_key"] = "callback_requested"
+
+                    _set_response(state, response)
+                    return state
+
+                else:
+
+                    logger.error(
+                        f"Failed sending onboarding email to {state.get('email')}"
+                    )
+
+                    response = (
+                        "I'm sorry, I couldn't send the onboarding form right now. "
+                        "Our team will try again shortly."
+                    )
+
+                    _set_response(state, response)
+                    return state
+                
+        except Exception:
+            logger.exception(
+                "[Questionnaire] Failed to extract fields from user response. Proceeding without extraction."
+            )
             # Task 4: on extraction failure, log the miss and proceed (retry counter handles retries)
 
     # ── Task 2: answer_and_query — hand off to faq_after_answer ──────────────
@@ -905,6 +998,8 @@ def questionnaire_node(state: LeadState) -> LeadState:
         state["next_node"] = "faq_after_answer"
         logger.info("[Questionnaire] answer_and_query → routing to faq_after_answer")
         return state
+    
+
 
     # ── 7. Determine next field ───────────────────────────────────────────────
     next_key = _get_next_field(state["answered_fields"])

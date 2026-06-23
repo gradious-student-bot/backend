@@ -139,7 +139,7 @@
   </div>
 
   <script>
-    const API_BASE = "https://oliver-patulous-valeria.ngrok-free.dev";
+    const API_BASE = "\http://localhost:8000"; // Update this to your FastAPI server URL
 
     let sessionId = null;
     let callEnded = false;
@@ -160,7 +160,8 @@
           session_id: sessionId,
           lead_id: "LEAD001",
           lead_name: "Meghan",
-          phone: "9876543210"
+          phone: "9876543210",
+          email: "meghangowsick007@gmail.com"
         })
       });
 
