@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from agent.graph import agent_graph
 from agent.state import LeadState
 from agent.nodes.questionnaire_node import generate_greeting
+from datetime import datetime, timezone
 
 from models.schemas import TurnRequest, TurnResponse, InitRequest, InitResponse
 
@@ -18,7 +19,7 @@ router = APIRouter()
 _sessions: dict[str, LeadState] = {}
 
 
-def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) -> LeadState:
+def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str], session_id: str) -> LeadState:
     """
     Initialize a new LeadState for a given lead.
     """
@@ -29,6 +30,12 @@ def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str]) 
         lead_name=lead_name,
         phone=phone,
         email=email,
+        conversation_id=session_id,
+        call_start_time=datetime.now(timezone.utc).isoformat(),
+        call_end_time=None,
+        call_duration=None,
+        call_transcript=None,
+        call_summary=None,
         messages=[AIMessage(content=greeting)],
         last_agent_response=greeting,
         next_node="",
@@ -67,7 +74,7 @@ async def init_session(req: InitRequest):
     logger.info(f"[Routes] POST /agent/init - Creating session for lead {req.lead_id}")
 
     # Initialize the state for the new session
-    state = _init_state(req.lead_id, req.lead_name, req.phone, req.email)
+    state = _init_state(req.lead_id, req.lead_name, req.phone, req.email, req.session_id)
 
     _sessions[req.session_id] = state
     logger.info(f"[Routes] Session {req.session_id} created successfully")
@@ -141,6 +148,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
             lead_name=init_data["lead_name"],
             phone=init_data["phone"],
             email=init_data.get("email"),
+            session_id=session_id,
         )
         _sessions[session_id] = state
 

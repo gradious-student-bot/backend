@@ -53,3 +53,10 @@ class LeadState(TypedDict):
     lead_classification: str             # "Hot Lead" | "Warm Lead" | "Cold Lead"
     callback_time_raw: Optional[str]     # Raw natural language callback time phrase
     join_date_raw: Optional[str]         # Raw natural language join date phrase
+
+    conversation_id: Optional[str]
+    call_transcript: Optional[str]
+    call_summary: Optional[str]
+    call_start_time: Optional[str]
+    call_end_time: Optional[str]
+    call_duration: Optional[int]
