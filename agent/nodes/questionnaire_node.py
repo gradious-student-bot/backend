@@ -186,69 +186,203 @@ def questionnaire_node(state: LeadState) -> LeadState:
     logger.info(f"[Questionnaire] Lead={state['lead_id']} intent={intent} q_key={current_q_key}")
 
     # Step 1 — confirm_identity
-    if current_q_key == "confirm_identity":
-        affirmatives = {"yes", "yeah", "yep", "sure", "correct", "right", "speaking", "that's me", "this is"}
-        is_yes = any(w in user_text.lower() for w in affirmatives)
+    # if current_q_key == "confirm_identity":
+    #     affirmatives = {"yes", "yeah", "yep", "sure", "correct", "right", "speaking", "that's me", "this is"}
+    #     is_yes = any(w in user_text.lower() for w in affirmatives)
 
+    #     if is_yes:
+    #         result = _llm_json([{"role": "system", "content": POST_CONFIRM_SYSTEM_PROMPT}])
+    #         response = result.get("response", "Hi, this is Bindhu from Gradious. Is this a good time to speak?")
+    #         state["greeting_step"] = 1
+    #         state["current_question_key"] = "confirm_timing"
+    #     else:
+    #         response = f"Sorry about that — if you are {state.get('lead_name', 'the person we registered')}, please let me know so I can continue."
+    #     _set_response(state, response)
+    #     return state
+    if current_q_key == "confirm_identity":
+        lead_name = state.get('lead_name', 'the student')
+        confirm_identity_prompt = f"""## ROLE
+You are Bindhu, a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The user has just responded to the greeting "Am I speaking with {lead_name}?"
+First detect if the user confirmed their identity (yes) or denied it (no).
+Then generate the appropriate response.
+
+## USER'S REPLY
+"{user_text}"
+
+## RULES
+- If YES (user confirmed identity):
+- Introduce yourself as Bindhu from Gradious (1 short sentence).
+- Ask: "Is this a good time to speak?"
+- Keep it under 2 sentences. Sound natural, not scripted.
+- If NO or UNCLEAR (user denied or response is ambiguous):
+- Politely clarify and ask them to confirm if they are {lead_name}.
+- Keep it brief and natural.
+- Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+"is_yes": true or false,
+"response": ""
+}}"""
+        result = _llm_json([{"role": "system", "content": confirm_identity_prompt}])
+        is_yes = result.get("is_yes", False)
+        response = result.get(
+            "response",
+            "Hi, this is Bindhu from Gradious. Is this a good time to speak?" if is_yes
+            else f"Sorry about that — if you are {lead_name}, please let me know so I can continue."
+        )
         if is_yes:
-            result = _llm_json([{"role": "system", "content": POST_CONFIRM_SYSTEM_PROMPT}])
-            response = result.get("response", "Hi, this is Bindhu from Gradious. Is this a good time to speak?")
             state["greeting_step"] = 1
             state["current_question_key"] = "confirm_timing"
-        else:
-            response = f"Sorry about that — if you are {state.get('lead_name', 'the person we registered')}, please let me know so I can continue."
         _set_response(state, response)
         return state
-
+    
     # Step 2 — confirm_timing
-    if current_q_key == "confirm_timing":
-        affirmatives = {"yes", "yeah", "yep", "sure", "go ahead", "ok", "okay", "of course",
-                        "good time", "fine", "speak", "yes please"}
-        negatives = {"no", "nope", "busy", "not now", "bad time", "later", "call back",
-                     "not a good time", "can't", "cannot"}
-        text_lower = user_text.lower()
-        is_yes = any(w in text_lower for w in affirmatives)
-        is_no = any(w in text_lower for w in negatives)
+    # if current_q_key == "confirm_timing":
+    #     affirmatives = {"yes", "yeah", "yep", "sure", "go ahead", "ok", "okay", "of course",
+    #                     "good time", "fine", "speak", "yes please"}
+    #     negatives = {"no", "nope", "busy", "not now", "bad time", "later", "call back",
+    #                  "not a good time", "can't", "cannot"}
+    #     text_lower = user_text.lower()
+    #     is_yes = any(w in text_lower for w in affirmatives)
+    #     is_no = any(w in text_lower for w in negatives)
 
-        if is_no or (not is_yes and any(w in text_lower for w in ["later", "another time", "call back"])):
+    #     if is_no or (not is_yes and any(w in text_lower for w in ["later", "another time", "call back"])):
+    #         logger.info("[Questionnaire] Student unavailable — requesting callback time")
+    #         state["human_agent_requested"] = True
+    #         state["disposition"] = "human_agent_callback"
+    #         result = _llm_json([{"role": "system", "content": BAD_TIMING_SYSTEM_PROMPT}])
+    #         response = result.get("response", "No problem at all — when would be a good time for me to call you back?")
+    #         state["current_question_key"] = "callback_time"
+    #     else:
+    #         result = _llm_json([{"role": "system", "content": CONFIRM_TIMING_SYSTEM_PROMPT}])
+    #         response = result.get("response", "Ok, so I'm calling because you showed interest in our programs. Would you like to know more?")
+    #         state["greeting_step"] = 2
+    #         state["current_question_key"] = "confirm_interest"
+    #     _set_response(state, response)
+    #     return state
+    if current_q_key == "confirm_timing":
+        confirm_timing_prompt = f"""## ROLE
+You are Bindhu, a phone-based admissions counselor at Gradious.
+
+## OBJECTIVE
+The user has just responded to "Is this a good time to speak?"
+First detect if the user said it's a good time (yes) or not (no/busy/later).
+Then generate the appropriate response.
+
+## USER'S REPLY
+"{user_text}"
+
+## RULES
+- If YES (good time to talk):
+- Briefly mention the user showed interest in our tech training programs.
+- Ask: "Would you like to know more about what we offer?"
+- Keep it under 3 sentences. Sound natural.
+- If NO (not a good time / busy / wants callback):
+- Acknowledge with understanding (1 sentence).
+- Ask for a preferred callback time (1 sentence).
+- If UNCLEAR, treat as YES.
+- Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+"is_yes": true or false,
+"response": ""
+}}"""
+        result = _llm_json([{"role": "system", "content": confirm_timing_prompt}])
+        is_yes = result.get("is_yes", True)
+        response = result.get(
+            "response",
+            "Ok, so I'm calling because you showed interest in our programs. Would you like to know more?" if is_yes
+            else "No problem at all — when would be a good time for me to call you back?"
+        )
+        if is_yes:
+            state["greeting_step"] = 2
+            state["current_question_key"] = "confirm_interest"
+        else:
             logger.info("[Questionnaire] Student unavailable — requesting callback time")
             state["human_agent_requested"] = True
             state["disposition"] = "human_agent_callback"
-            result = _llm_json([{"role": "system", "content": BAD_TIMING_SYSTEM_PROMPT}])
-            response = result.get("response", "No problem at all — when would be a good time for me to call you back?")
             state["current_question_key"] = "callback_time"
-        else:
-            result = _llm_json([{"role": "system", "content": CONFIRM_TIMING_SYSTEM_PROMPT}])
-            response = result.get("response", "Ok, so I'm calling because you showed interest in our programs. Would you like to know more?")
-            state["greeting_step"] = 2
-            state["current_question_key"] = "confirm_interest"
         _set_response(state, response)
         return state
 
     # Step 3 — confirm_interest
+    # if current_q_key == "confirm_interest":
+    #     affirmatives = {"yes", "yeah", "yep", "sure", "ok", "okay", "of course", "interested",
+    #                     "go ahead", "yes please", "tell me"}
+    #     text_lower = user_text.lower()
+    #     is_yes = any(w in text_lower for w in affirmatives)
+
+    #     if is_yes:
+    #         result = _llm_json([
+    #             {"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}
+    #         ])
+
+    #         response = result.get(
+    #             "response",
+    #             "Got it. Let me get a few details to help point you in the right direction."
+    #         )
+
+    #         state["greeting_step"] = 3
+    #         state["current_question_key"] = "course_interest"
+
+    #         _set_response(state, response)
+    #         return state
+    #     else:
+    #         logger.info("[Questionnaire] Student not interested after greeting → routing to end")
+    #         state["next_node"] = "not_interested"
+    #         state["disposition"] = "not_interested"
+    #         state["call_ended"] = False  # end_node will set this
+    #         return state
     if current_q_key == "confirm_interest":
-        affirmatives = {"yes", "yeah", "yep", "sure", "ok", "okay", "of course", "interested",
-                        "go ahead", "yes please", "tell me"}
-        text_lower = user_text.lower()
-        is_yes = any(w in text_lower for w in affirmatives)
+        confirm_interest_prompt = f"""## ROLE
+You are Bindhu, a phone-based admissions counselor at Gradious.
 
+## OBJECTIVE
+The user has just responded to "Would you like to know more about what we offer?"
+First detect if the user expressed interest (yes) or declined (no/not interested).
+Then generate the appropriate response.
+
+## USER'S REPLY
+"{user_text}"
+
+## RULES
+- If YES (interested / wants to know more):
+- Acknowledge their interest briefly.
+- Transition naturally into asking about which course they're interested in.
+- Course options: Full Stack + Gen AI, or AI Stack.
+- Keep it under 3 sentences. Sound natural and conversational.
+- Do NOT say "Let me ask you a few questions" and pause — just ask the course question directly.
+- If NO (not interested):
+- Politely acknowledge their response.
+- Thank them for their time (1 short sentence).
+- If UNCLEAR, treat as YES.
+- Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
+- Do not create new courses — only mention Full Stack + Gen AI and AI Stack.
+
+## OUTPUT FORMAT
+Return STRICT JSON only.
+{{
+"is_yes": true or false,
+"response": ""
+}}"""
+        result = _llm_json([{"role": "system", "content": confirm_interest_prompt}])
+        is_yes = result.get("is_yes", True)
+        response = result.get("response", "Got it. Let me get a few details to help point you in the right direction.")
         if is_yes:
-            result = _llm_json([
-                {"role": "system", "content": CONFIRM_INTEREST_SYSTEM_PROMPT}
-            ])
-
-            response = result.get(
-                "response",
-                "Got it. Let me get a few details to help point you in the right direction."
-            )
-
             state["greeting_step"] = 3
             state["current_question_key"] = "course_interest"
-
             _set_response(state, response)
             return state
         else:
             logger.info("[Questionnaire] Student not interested after greeting → routing to end")
+            _set_response(state, response)
             state["next_node"] = "not_interested"
             state["disposition"] = "not_interested"
             state["call_ended"] = False  # end_node will set this
@@ -544,11 +678,13 @@ def questionnaire_node(state: LeadState) -> LeadState:
                     next_field=next_key,
                     field_description=ALL_FIELDS[next_key],
                     last_user_reply=user_text,
+                    std_course_change=state["answered_fields"].get("std_course_change", False)
                 )}]
                 + get_recent_messages(state, 6)
             )
             state["pending_next_question_text"] = next_q_result.get("response", ALL_FIELDS[next_key])
             state["current_question_key"] = next_key
+            state["answered_fields"]["std_course_change"] = False  # reset after using it in prompt
         else:
             state["pending_next_question_text"] = None
         state["next_node"] = "faq_after_answer"
