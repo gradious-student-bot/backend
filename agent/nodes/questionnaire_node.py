@@ -144,6 +144,46 @@ def _apply_extracted(state: LeadState, extracted: dict):
             state["callback_requested"] = str(value).lower() == "yes"
 
 
+
+
+def _course_display_name(course_value: str | None) -> str | None:
+    """Converts internal course ids / Airtable values into user-friendly names."""
+    if not course_value:
+        return None
+
+    value = str(course_value).strip()
+    normalized = value.lower().replace("-", "_").replace(" ", "_")
+
+    course_map = {
+        "fullstack_batch": "Full Stack + Gen AI",
+        "full_stack_gen_ai": "Full Stack + Gen AI",
+        "full_stack_+_gen_ai": "Full Stack + Gen AI",
+        "full_stack": "Full Stack + Gen AI",
+        "campus_fullstack": "Campus Full Stack + Gen AI",
+        "ai_batch": "AI Stack",
+        "ai_stack": "AI Stack",
+        "campus_ai": "Campus AI Stack",
+        "dsa_batch": "DSA",
+        "dsa": "DSA",
+    }
+
+    return course_map.get(normalized, value.replace("_", " ").title())
+
+
+def _known_course_from_state(state: LeadState) -> str | None:
+    """Gets course interest either from answered_fields or top-level state."""
+    af = state.get("answered_fields") or {}
+    return af.get("course_interest") or state.get("course_interest")
+
+
+def _sync_known_course_to_answered_fields(state: LeadState) -> None:
+    """If Airtable already gave us course_interest, mark it as answered so the bot will not ask again."""
+    course = state.get("course_interest")
+    if course:
+        state.setdefault("answered_fields", {})["course_interest"] = course
+
+
+
 def _set_response(state: LeadState, text: str):
     """
     Sets the last_agent_response and appends an AIMessage to the messages list.
@@ -184,6 +224,9 @@ def questionnaire_node(state: LeadState) -> LeadState:
     today = date.today()
 
     logger.info(f"[Questionnaire] Lead={state['lead_id']} intent={intent} q_key={current_q_key}")
+
+    # If Airtable loaded course_interest into state, mark it answered so we do not ask it again.
+    _sync_known_course_to_answered_fields(state)
 
     # Step 1 — confirm_identity
     # if current_q_key == "confirm_identity":
@@ -266,6 +309,14 @@ Return STRICT JSON only.
     #     _set_response(state, response)
     #     return state
     if current_q_key == "confirm_timing":
+        course_value = _known_course_from_state(state)
+        course_name = _course_display_name(course_value)
+        course_context = (
+            f"the {course_name} training program"
+            if course_name
+            else "our training programs — Full Stack + Gen AI, AI Stack, and DSA"
+        )
+
         confirm_timing_prompt = f"""## ROLE
 You are Bindhu, a phone-based admissions counselor at Gradious.
 
@@ -274,17 +325,22 @@ The user has just responded to "Is this a good time to speak?"
 First detect if the user said it's a good time (yes) or not (no/busy/later).
 Then generate the appropriate response.
 
+## KNOWN COURSE CONTEXT
+{course_context}
+
 ## USER'S REPLY
 "{user_text}"
 
 ## RULES
 - If YES (good time to talk):
-- Briefly mention the user showed interest in our tech training programs.
-- Ask: "Would you like to know more about what we offer?"
-- Keep it under 3 sentences. Sound natural.
+  - Mention that the user had shown interest in {course_context}.
+  - Ask if they would like to know more about it.
+  - If a specific course is known, do NOT list all courses and do NOT ask which course they are interested in.
+  - If no specific course is known, briefly mention the available programs: Full Stack + Gen AI, AI Stack, and DSA.
+  - Keep it under 3 sentences. Sound natural.
 - If NO (not a good time / busy / wants callback):
-- Acknowledge with understanding (1 sentence).
-- Ask for a preferred callback time (1 sentence).
+  - Acknowledge with understanding (1 sentence).
+  - Ask for a preferred callback time (1 sentence).
 - If UNCLEAR, treat as YES.
 - Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
 
@@ -296,9 +352,13 @@ Return STRICT JSON only.
 }}"""
         result = _llm_json([{"role": "system", "content": confirm_timing_prompt}])
         is_yes = result.get("is_yes", True)
+        fallback_yes = (
+            f"Ok, I’m calling because you had shown interest in {course_context}. "
+            "Would you like me to quickly explain it?"
+        )
         response = result.get(
             "response",
-            "Ok, so I'm calling because you showed interest in our programs. Would you like to know more?" if is_yes
+            fallback_yes if is_yes
             else "No problem at all — when would be a good time for me to call you back?"
         )
         if is_yes:
@@ -341,30 +401,40 @@ Return STRICT JSON only.
     #         state["call_ended"] = False  # end_node will set this
     #         return state
     if current_q_key == "confirm_interest":
+        course_value = _known_course_from_state(state)
+        course_name = _course_display_name(course_value)
+        known_course_text = course_name or "Not available"
+
         confirm_interest_prompt = f"""## ROLE
 You are Bindhu, a phone-based admissions counselor at Gradious.
 
 ## OBJECTIVE
-The user has just responded to "Would you like to know more about what we offer?"
+The user has just responded to whether they want to know more about the Gradious program.
 First detect if the user expressed interest (yes) or declined (no/not interested).
 Then generate the appropriate response.
+
+## KNOWN COURSE
+{known_course_text}
 
 ## USER'S REPLY
 "{user_text}"
 
 ## RULES
-- If YES (interested / wants to know more):
-- Acknowledge their interest briefly.
-- Transition naturally into asking about which course they're interested in.
-- Course options: Full Stack + Gen AI, or AI Stack.
-- Keep it under 3 sentences. Sound natural and conversational.
-- Do NOT say "Let me ask you a few questions" and pause — just ask the course question directly.
+- If YES and KNOWN COURSE is available:
+  - Do NOT ask which course they are interested in.
+  - Briefly mention the known course by name.
+  - Give one simple line about the course benefit.
+  - Then ask the next required detail: whether they are currently studying, graduated, or working professional.
+- If YES and KNOWN COURSE is "Not available":
+  - Ask which course they are interested in.
+  - Course options: Full Stack + Gen AI, AI Stack, and DSA.
 - If NO (not interested):
-- Politely acknowledge their response.
-- Thank them for their time (1 short sentence).
+  - Politely acknowledge their response.
+  - Thank them for their time in one short sentence.
 - If UNCLEAR, treat as YES.
+- Do not say "Great to hear you're interested!".
 - Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
-- Do not create new courses — only mention Full Stack + Gen AI and AI Stack.
+- Keep it under 3 sentences. Sound natural and conversational.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
@@ -374,14 +444,32 @@ Return STRICT JSON only.
 }}"""
         result = _llm_json([{"role": "system", "content": confirm_interest_prompt}])
         is_yes = result.get("is_yes", True)
-        response = result.get("response", "Got it. Let me get a few details to help point you in the right direction.")
+
         if is_yes:
             state["greeting_step"] = 3
-            state["current_question_key"] = "course_interest"
+
+            confirm_interest_prompt = CONFIRM_INTEREST_SYSTEM_PROMPT.format(
+                course_interest=state.get("course_interest") or "Not available"
+            )
+
+            result = _llm_json([
+                {"role": "system", "content": confirm_interest_prompt}
+            ])
+
+            response = result.get("response")
+
+
+            if state.get("course_interest"):
+                state["answered_fields"]["course_interest"] = state["course_interest"]
+
+            next_key = _get_next_field(state["answered_fields"])
+            state["current_question_key"] = next_key or "student_status"
+
             _set_response(state, response)
             return state
         else:
             logger.info("[Questionnaire] Student not interested after greeting → routing to end")
+            response = result.get("response", "No problem. Thanks for your time, and I wish you the best.")
             _set_response(state, response)
             state["next_node"] = "not_interested"
             state["disposition"] = "not_interested"
