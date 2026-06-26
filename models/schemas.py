@@ -28,6 +28,7 @@ class InitRequest(BaseModel):
     phone: str
     lead_id: str
     email: Optional[str] = None
+    course_interest: Optional[str] = None
 
 
 class InitResponse(BaseModel):

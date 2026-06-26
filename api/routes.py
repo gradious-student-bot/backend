@@ -19,7 +19,7 @@ router = APIRouter()
 _sessions: dict[str, LeadState] = {}
 
 
-def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str], session_id: str) -> LeadState:
+def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str], session_id: str, course_interest: Optional[str] = None) -> LeadState:
     """
     Initialize a new LeadState for a given lead.
     """
@@ -40,14 +40,14 @@ def _init_state(lead_id: str, lead_name: str, phone: str, email: Optional[str], 
         last_agent_response=greeting,
         next_node="",
         current_question_key="confirm_identity",
-        answered_fields={},
+        answered_fields={"course_interest": course_interest} if course_interest else {},
         human_agent_requested=False,
         greeting_step=0,
         question_retry_counts={},
         pending_switch=None,
         pending_sub_query=None,
         pending_next_question_text=None,
-        course_interest=None,
+        course_interest=course_interest,
         student_status=None,
         current_year=None,
         passout_year=None,
@@ -73,7 +73,11 @@ async def init_session(req: InitRequest):
     logger.info(f"[Routes] POST /agent/init - Creating session for lead {req.lead_id}")
 
     # Initialize the state for the new session
-    state = _init_state(req.lead_id, req.lead_name, req.phone, req.email, req.session_id)
+    state = _init_state(req.lead_id, req.lead_name, req.phone, req.email, req.session_id, req.course_interest)
+    
+    print("REQ COURSE =", req.course_interest)
+    print("STATE COURSE =", state.get("course_interest"))
+    print("ANSWERED FIELDS =", state.get("answered_fields"))
 
     _sessions[req.session_id] = state
     logger.info(f"[Routes] Session {req.session_id} created successfully")
@@ -148,6 +152,7 @@ async def websocket_agent(websocket: WebSocket, session_id: str):
             phone=init_data["phone"],
             email=init_data.get("email"),
             session_id=session_id,
+            course_interest=init_data.get("course_interest")
         )
         _sessions[session_id] = state
 
