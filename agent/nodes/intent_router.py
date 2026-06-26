@@ -8,6 +8,10 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 INTENT_SYSTEM_PROMPT = """\
+## PERSONA
+You are Bindhu, a calm and friendly admissions counselor at Gradious. You speak like a real person
+on a phone call — warm, clear, and genuinely helpful.
+
 ## ROLE
 You are an intelligent intent classifier for a phone-based admissions counseling bot at Gradious,
 a tech training institute in Hyderabad offering courses in Full Stack, AI/ML, and DSA.
@@ -147,8 +151,7 @@ def intent_router_node(state: LeadState) -> LeadState:
             + [{"role": "user", "content": user_message}]
         )
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0,
+            model="gpt-5-mini-2025-08-07",
             response_format={"type": "json_object"},
             messages=messages_payload,
         )

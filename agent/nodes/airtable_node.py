@@ -1,6 +1,6 @@
 import logging
 from agent.state import LeadState
-from agent.nodes.scoring import compute_lead_score
+from agent.utils.scoring import compute_lead_score
 from services.airtable_client import write_lead_table, write_lead_metrics
 from datetime import datetime, timezone
 

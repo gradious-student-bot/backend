@@ -27,7 +27,7 @@ def route_after_intent(state: LeadState) -> str:
         "human_agent":      "questionnaire",    # route to questionnaire for human agent requests
         "rude":             "questionnaire",    # route to questionnaire for rude or inappropriate inputs
         "irrelevant":       "questionnaire",    # route to questionnaire for irrelevant inputs
-        "confused":         "questionnaire",    # route to questionnaire for confused inputs
+        "confused":         "questionnaire",    # route to questionnaire for confused user
         "small_talk":       "questionnaire",    # route to questionnaire for small talk
         "not_interested":   "end",              # route to end node for disinterest
         "end_call":         "end",              # route to end node for explicit end call requests
