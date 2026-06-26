@@ -3,6 +3,7 @@ import logging
 from openai import OpenAI
 from agent.state import LeadState
 from config import OPENAI_API_KEY
+from services.llm_service import llm
 
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -133,36 +134,25 @@ def intent_router_node(state: LeadState) -> LeadState:
 
     last_agent_msg = state.get("last_agent_response", "")
 
-    from langchain_core.messages import HumanMessage, AIMessage as LCAIMessage
-    recent = []
-    msgs = state.get("messages", [])
-    # Exclude last message (current user input)
-    history = msgs[:-1] if len(msgs) > 1 else []
-    for m in history[-6:]:
-        if isinstance(m, HumanMessage):
-            recent.append({"role": "user", "content": m.content})
-        elif isinstance(m, LCAIMessage):
-            recent.append({"role": "assistant", "content": m.content})
-
     try:
-        messages_payload = (
-            [{"role": "system", "content": INTENT_SYSTEM_PROMPT.format(last_agent_message=last_agent_msg)}]
-            + recent
-            + [{"role": "user", "content": user_message}]
+
+        parsed = llm.invoke_json(
+            messages= (
+                [{"role": "system", "content": INTENT_SYSTEM_PROMPT.format(last_agent_message=last_agent_msg)}]
+                + llm.get_recent_messages(state)
+                + [{"role": "user", "content": user_message}]
+            )
         )
-        response = client.chat.completions.create(
-            model="gpt-5-mini-2025-08-07",
-            response_format={"type": "json_object"},
-            messages=messages_payload,
-        )
-        raw = response.choices[0].message.content
-        parsed = json.loads(raw)
+        
         intent = parsed.get("intent", "answer").strip().lower()
         reasoning = parsed.get("reasoning", "")
         sub_query = parsed.get("sub_query", None)
+        
         logger.info(f"[IntentRouter] Intent={intent} | Reason: {reasoning}")
+        
         if sub_query:
             logger.info(f"[IntentRouter] sub_query detected: {sub_query[:80]}")
+
     except Exception as e:
         logger.error(f"[IntentRouter] LLM error: {e}. Defaulting to 'answer'")
         intent = "answer"
@@ -172,6 +162,7 @@ def intent_router_node(state: LeadState) -> LeadState:
         "answer", "query", "answer_and_query", "repeat", "human_agent",
         "not_interested", "rude", "irrelevant", "confused", "end_call", "small_talk",
     }
+
     if intent not in valid_intents:
         logger.warning(f"[IntentRouter] Unknown intent '{intent}' → defaulting to 'answer'")
         intent = "answer"

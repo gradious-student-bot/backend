@@ -2,9 +2,12 @@ import json
 import logging
 from datetime import date, datetime
 from openai import OpenAI
+
+from services.llm_service import llm
 from agent.state import LeadState
 from config import OPENAI_API_KEY
 from services.email_service import send_onboarding_email
+
 from agent.prompts.questionnaire_prompt import (
     EXTRACT_SYSTEM_PROMPT,
     NEXT_QUESTION_SYSTEM_PROMPT,
@@ -64,19 +67,6 @@ SWITCHABLE_FIELDS = {"course_interest", "training_mode"}
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _llm_json(messages: list) -> dict:
-    """
-    Calls the LLM with a list of messages and returns the parsed JSON response.
-    """
-    resp = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        temperature=0.4,
-        response_format={"type": "json_object"},
-        messages=messages,
-    )
-    return json.loads(resp.choices[0].message.content)
-
 
 def _filled_summary(af: dict) -> str:
     """Returns a string summary of the fields that have been filled so far, for LLM prompt context."""
@@ -145,8 +135,6 @@ def _apply_extracted(state: LeadState, extracted: dict):
             state["callback_requested"] = str(value).lower() == "yes"
 
 
-
-
 def _course_display_name(course_value: str | None) -> str | None:
     """Converts internal course ids / Airtable values into user-friendly names."""
     if not course_value:
@@ -184,7 +172,6 @@ def _sync_known_course_to_answered_fields(state: LeadState) -> None:
         state.setdefault("answered_fields", {})["course_interest"] = course
 
 
-
 def _set_response(state: LeadState, text: str):
     """
     Sets the last_agent_response and appends an AIMessage to the messages list.
@@ -193,29 +180,6 @@ def _set_response(state: LeadState, text: str):
     state["last_agent_response"] = text
     state["messages"].append(AIMessage(content=text))
 
-
-def get_recent_messages(state: LeadState, n: int = 10) -> list:
-    """
-    Returns the last n messages from state["messages"] formatted as OpenAI
-    chat message dicts: {"role": "user"|"assistant", "content": "..."}.
-    Skips the very last message (which is the current user input, already handled separately).
-    """
-    from langchain_core.messages import HumanMessage, AIMessage
-    
-    msgs = state.get("messages", [])
-    history = msgs[:-1] if len(msgs) > 1 else []
-    result = []
-
-    for m in history[-n:]:
-
-        if isinstance(m, HumanMessage):
-            result.append({"role": "user", "content": m.content})
-
-        elif isinstance(m, AIMessage):
-            result.append({"role": "assistant", "content": m.content})
-
-    logger.info(f"Conversation history: {result}")
-    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -270,7 +234,11 @@ Return STRICT JSON only.
 "is_yes": true or false,
 "response": ""
 }}"""
-        result = _llm_json([{"role": "system", "content": confirm_identity_prompt}])
+        result = llm.invoke_json(
+            [{"role": "system", "content": confirm_identity_prompt}]
+            + llm.get_recent_messages(state)
+            + [{"role": "user", "content": user_text}]
+        )
         is_yes = result.get("is_yes", False)
         response = result.get(
             "response",
@@ -326,7 +294,11 @@ Return STRICT JSON only.
 "is_yes": true or false,
 "response": ""
 }}"""
-        result = _llm_json([{"role": "system", "content": confirm_timing_prompt}])
+        result = llm.invoke_json(
+            [{"role": "system", "content": confirm_timing_prompt}]
+            + llm.get_recent_messages(state)
+            + [{"role": "user", "content": user_text}]
+        )
         is_yes = result.get("is_yes", True)
         fallback_yes = (
             f"Ok, I'm calling because you had shown interest in {course_context}. "
@@ -391,17 +363,22 @@ Return STRICT JSON only.
 "is_yes": true or false,
 "response": ""
 }}"""
-        result = _llm_json([{"role": "system", "content": confirm_interest_prompt}])
+        result = llm.invoke_json(
+            [{"role": "system", "content": confirm_interest_prompt}]
+            + llm.get_recent_messages(state)
+            + [{"role": "user", "content": user_text}]
+        )
         is_yes = result.get("is_yes", True)
 
         if is_yes:
+            logger.info("User said yes in confirm interest")
             state["greeting_step"] = 3
 
             confirm_interest_prompt = CONFIRM_INTEREST_SYSTEM_PROMPT.format(
                 course_interest=state.get("course_interest") or "Not available"
             )
 
-            result = _llm_json([
+            result = llm.invoke_json([
                 {"role": "system", "content": confirm_interest_prompt}
             ])
 
@@ -455,72 +432,20 @@ Return STRICT JSON only.
         state["disposition"] = "human_agent_callback"
 
         if not state.get("callback_time"):
-            result = _llm_json([{"role": "system", "content": HUMAN_AGENT_SYSTEM_PROMPT}])
+            result = llm.invoke_json([{"role": "system", "content": HUMAN_AGENT_SYSTEM_PROMPT}])
             response = result.get("response", "Sure! What time works best for a callback from our team?")
             state["current_question_key"] = "callback_time"
         else:
             _apply_extracted(state, {"callback_time": user_text})
             state["callback_requested"] = True
             state["call_ended"] = True
-            result = _llm_json([{
+            result = llm.invoke_json([{
                 "role": "system",
                 "content": HUMAN_AGENT_CONFIRM_SYSTEM_PROMPT.format(callback_time=user_text),
             }])
             response = result.get("response", f"Done! Our team will call you at {user_text}. Talk soon!")
             _set_response(state, response)
             return state
-
-    # ── 3. Rude ───────────────────────────────────────────────────────────────
-    if intent == "rude":
-        next_key = _get_next_field(state["answered_fields"])
-        desc = ALL_FIELDS.get(next_key or current_q_key, "our current question")
-        recent = get_recent_messages(state, 6)
-        result = _llm_json(
-            [{"role": "system", "content": DE_ESCALATE_SYSTEM_PROMPT.format(pending_question_description=desc)}]
-            + recent
-            + [{"role": "user", "content": user_text}]
-        )
-        _set_response(state, result.get("response", "I understand. Let me know when you're ready to continue."))
-        return state
-
-    # ── 4. Irrelevant ─────────────────────────────────────────────────────────
-    if intent == "irrelevant":
-        next_key = _get_next_field(state["answered_fields"])
-        desc = ALL_FIELDS.get(next_key or current_q_key, "our current question")
-        recent = get_recent_messages(state, 6)
-        result = _llm_json(
-            [{"role": "system", "content": IRRELEVANT_SYSTEM_PROMPT.format(pending_question_description=desc)}]
-            + recent
-            + [{"role": "user", "content": user_text}]
-        )
-        _set_response(state, result.get("response", "Let's get back on track — " + desc))
-        return state
-
-    # ── 5. Confused ───────────────────────────────────────────────────────────
-    if intent == "confused":
-        next_key = _get_next_field(state["answered_fields"])
-        desc = ALL_FIELDS.get(next_key or current_q_key, "the current question")
-        recent = get_recent_messages(state, 6)
-        result = _llm_json(
-            [{"role": "system", "content": CONFUSED_SYSTEM_PROMPT.format(pending_question_description=desc)}]
-            + recent
-            + [{"role": "user", "content": user_text}]
-        )
-        _set_response(state, result.get("response", desc))
-        return state
-
-    # ── 6. Small talk ─────────────────────────────────────────────────────────
-    if intent == "small_talk":
-        logger.info(f"[Questionnaire] Small talk detected — responding with small talk prompt")
-
-        recent = get_recent_messages(state, 6)
-        result = _llm_json(
-            [{"role": "system", "content": SMALL_TALK_SYSTEM_PROMPT}]
-            + recent
-            + [{"role": "user", "content": user_text}]
-        )
-        _set_response(state, result.get("response", "I appreciate your input! Let's continue with our discussion."))
-        return state
 
     # ── 7. Extract fields from user answer ───────────────────────────────────
     if user_text and current_q_key not in ("", "confirm_identity", "confirm_timing", "confirm_interest"):
@@ -534,18 +459,13 @@ Return STRICT JSON only.
 
             logger.info(f"[Questionnaire] Current fields: {state['answered_fields']}")
 
-            recent_extract = get_recent_messages(state, 10)
-            extract_result = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0,
-                response_format={"type": "json_object"},
+            extracted = llm.invoke_json(
                 messages=(
                     [{"role": "system", "content": extract_prompt}]
-                    + recent_extract
+                    + llm.get_recent_messages(state)
                     + [{"role": "user", "content": f"Agent asked: {state.get('last_agent_response', '')}\nStudent replied: {user_text}"}]
-                ),
+                )
             )
-            extracted = json.loads(extract_result.choices[0].message.content).get("extracted", {})
             logger.info(f"[Questionnaire] Extracted fields: {extracted}")
 
             # Detect if any switchable field is being changed mid-conversation
@@ -573,7 +493,7 @@ Return STRICT JSON only.
                     state["pending_switch"] = {"field": field, "new_value": new_val}
                     state["current_question_key"] = "confirm_switch"
                     
-                    switch_result = _llm_json([{
+                    switch_result = llm.invoke_json([{
                         "role": "system",
                         "content": CONFIRM_SWITCH_SYSTEM_PROMPT.format(
                             field_label=field.replace("_", " ").title(),
@@ -621,7 +541,7 @@ Return STRICT JSON only.
                         f"No email found for lead {state.get('lead_id')}"
                     )
 
-                    result = _llm_json([{
+                    result = llm.invoke_json([{
                         "role": "system",
                         "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
                             lead_name=state.get("lead_name", ""),
@@ -658,7 +578,7 @@ Return STRICT JSON only.
                     state["onboarding_email_sent"] = True
                     state["answered_fields"]["onboarding_email_sent"] = True
 
-                    result = _llm_json([{
+                    result = llm.invoke_json([{
                         "role": "system",
                         "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
                             lead_name=state.get("lead_name", ""),
@@ -685,7 +605,7 @@ Return STRICT JSON only.
                         f"Failed sending onboarding email to {receiver_email}"
                     )
 
-                    result = _llm_json([{
+                    result = llm.invoke_json([{
                         "role": "system",
                         "content": ONBOARDING_EMAIL_SYSTEM_PROMPT.format(
                             lead_name=state.get("lead_name", ""),
@@ -725,7 +645,7 @@ Return STRICT JSON only.
     if intent == "answer_and_query" and state.get("pending_sub_query"):
         next_key = _get_next_field(state["answered_fields"])
         if next_key:
-            next_q_result = _llm_json(
+            next_q_result = llm.invoke_json(
                 [{"role": "system", "content": NEXT_QUESTION_SYSTEM_PROMPT.format(
                     filled_fields=_filled_summary(state["answered_fields"]),
                     next_field=next_key,
@@ -733,7 +653,7 @@ Return STRICT JSON only.
                     last_user_reply=user_text,
                     std_course_change=state["answered_fields"].get("std_course_change", False)
                 )}]
-                + get_recent_messages(state, 6)
+                + llm.get_recent_messages(state)
             )
             state["pending_next_question_text"] = next_q_result.get("response", ALL_FIELDS[next_key])
             state["current_question_key"] = next_key
@@ -771,7 +691,7 @@ Return STRICT JSON only.
         else:
             state["disposition"] = "not_interested"
 
-        result = _llm_json([{
+        result = llm.invoke_json([{
             "role": "system",
             "content": WRAP_UP_SYSTEM_PROMPT.format(disposition=state["disposition"]),
         }])
@@ -783,17 +703,20 @@ Return STRICT JSON only.
         logger.info("[Questionnaire] Asking next question")
         state["current_question_key"] = next_key
 
-        recent_q = get_recent_messages(state, 6)
-        result = _llm_json(
-            [{"role": "system", "content": NEXT_QUESTION_SYSTEM_PROMPT.format(
-                filled_fields=_filled_summary(state["answered_fields"]),
-                next_field=next_key,
-                field_description=ALL_FIELDS[next_key],
-                last_user_reply=user_text,
-                std_course_change=state["answered_fields"].get("std_course_change", False)
-            )}]
-            + recent_q
+        next_que_prompt = NEXT_QUESTION_SYSTEM_PROMPT.format(
+            filled_fields=_filled_summary(state["answered_fields"]),
+            next_field=next_key,
+            field_description=ALL_FIELDS[next_key],
+            last_user_reply=user_text,
+            std_course_change=state["answered_fields"].get("std_course_change", False)
         )
+
+        result = llm.invoke_json(
+            [{"role": "system", "content": next_que_prompt}]
+            + llm.get_recent_messages(state)
+            + [{"role": "user", "content": user_text}]
+        )
+
         state["answered_fields"]["std_course_change"] = False  # reset after using it in prompt
         response = result.get("response", ALL_FIELDS[next_key])
         _set_response(state, response)
@@ -803,7 +726,7 @@ Return STRICT JSON only.
 def generate_greeting(lead_name: str) -> str:
     """Called at session init to generate a dynamic LLM greeting."""
     try:
-        result = _llm_json([{
+        result = llm.invoke_json([{
             "role": "system",
             "content": GREETING_SYSTEM_PROMPT.format(name=lead_name),
         }])

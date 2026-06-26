@@ -22,7 +22,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration variables from environment
+
+# LLM Model config
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+OPENAI_THINK_MODEL = os.environ.get("OPENAI_THINK_MODEL", "gpt-5")
+OPENAI_FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", "gpt-5-mini")
+
 AIRTABLE_TOKEN = os.environ.get("AIRTABLE_TOKEN")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
 AIRTABLE_LEAD_TABLE = os.environ.get("AIRTABLE_LEAD_TABLE", "Lead_Table")

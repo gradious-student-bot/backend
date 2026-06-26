@@ -5,6 +5,7 @@ from agent.state import LeadState
 from agent.nodes.intent_router import intent_router_node
 from agent.nodes.questionnaire_node import questionnaire_node
 from agent.nodes.faq_node import faq_node
+from agent.nodes.minor_intent_node import minor_intent_node
 from agent.nodes.repeat_node import repeat_node
 from agent.nodes.end_node import end_node
 from agent.nodes.airtable_node import airtable_node
@@ -25,10 +26,10 @@ def route_after_intent(state: LeadState) -> str:
         "answer_and_query": "questionnaire",    # route to questionnaire first, then FAQ
         "repeat":           "repeat",           # route to repeat node for repeating the last question
         "human_agent":      "questionnaire",    # route to questionnaire for human agent requests
-        "rude":             "questionnaire",    # route to questionnaire for rude or inappropriate inputs
-        "irrelevant":       "questionnaire",    # route to questionnaire for irrelevant inputs
-        "confused":         "questionnaire",    # route to questionnaire for confused user
-        "small_talk":       "questionnaire",    # route to questionnaire for small talk
+        "rude":             "minor_intent",     # route to minor_intent for rude or inappropriate inputs
+        "irrelevant":       "minor_intent",     # route to minor_intent for irrelevant inputs
+        "confused":         "minor_intent",     # route to minor_intent for confused user
+        "small_talk":       "minor_intent",     # route to minor_intent for small talk
         "not_interested":   "end",              # route to end node for disinterest
         "end_call":         "end",              # route to end node for explicit end call requests
     }
@@ -77,22 +78,24 @@ def build_graph() -> StateGraph:
     logger.info("Building agent graph")
     graph = StateGraph(LeadState)
 
-    graph.add_node("intent_router",   intent_router_node)
-    graph.add_node("questionnaire",   questionnaire_node)
-    graph.add_node("faq",             faq_node)
-    graph.add_node("faq_after_answer", faq_node)
-    graph.add_node("repeat",          repeat_node)
-    graph.add_node("end",             end_node)
-    graph.add_node("airtable",        airtable_node)
+    graph.add_node("intent_router",     intent_router_node)
+    graph.add_node("questionnaire",     questionnaire_node)
+    graph.add_node("faq",               faq_node)
+    graph.add_node("faq_after_answer",  faq_node)
+    graph.add_node("minor_intent",      minor_intent_node)
+    graph.add_node("repeat",            repeat_node)
+    graph.add_node("end",               end_node)
+    graph.add_node("airtable",          airtable_node)
 
     # Initial entry point is the intent router
     graph.set_entry_point("intent_router")
 
     graph.add_conditional_edges("intent_router", route_after_intent, {
-        "questionnaire": "questionnaire",
-        "faq":           "faq",
-        "repeat":        "repeat",
-        "end":           "end",
+        "questionnaire":    "questionnaire",
+        "faq":              "faq",
+        "minor_intent":     "minor_intent",
+        "repeat":           "repeat",
+        "end":              "end",
     })
 
     graph.add_conditional_edges("questionnaire", route_after_questionnaire, {
@@ -103,11 +106,12 @@ def build_graph() -> StateGraph:
     })
 
     # faq_after_answer and faq are both terminal for the turn
-    graph.add_edge("faq",             END)
-    graph.add_edge("faq_after_answer", END)
-    graph.add_edge("repeat",          END)
-    graph.add_edge("end",             "airtable")
-    graph.add_edge("airtable",        END)
+    graph.add_edge("faq",               END)
+    graph.add_edge("faq_after_answer",  END)
+    graph.add_edge("minor_intent",      END)
+    graph.add_edge("repeat",            END)
+    graph.add_edge("end",               "airtable")
+    graph.add_edge("airtable",          END)
 
     logger.info("Graph built successfully")
     return graph.compile()
