@@ -35,6 +35,8 @@ def route_after_intent(state: LeadState) -> str:
     }
 
     route = routing.get(intent, "questionnaire")
+    state["last_agent_node"] = route
+    
     logger.info(f"Route selected: {route}")
 
     return route

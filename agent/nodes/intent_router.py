@@ -112,12 +112,17 @@ and the intent descriptions below. Return a strict JSON response.
    as "answer" if the reply is a clear yes/no: "Yes", "No", "Speaking", "Wrong number",
    "That's me", "Not me", etc. Everything else — greetings, identity questions, purpose questions,
    "Huh?", "Who is this?" — must be classified as **small_talk**.
+9. When the last agent response node is "faq" and the last agent response had a question and user answered it.
+   Analyse it correctly and determine if user is answering to a questionnaire or asking for more details like course details.
+   Like agent asked "Would you like to know more about course?" and user said "Yes", the intent is **query**. We tell more about course.
 
 ## CONVERSATION CONTEXT
 The agent's last message (the question that was just asked) is provided below.
 Use it to correctly determine if the student is answering that question or asking something new.
 
 Agent's last message: {last_agent_message}
+
+Last agent response node: {last_agent_node}
 
 ## OUTPUT FORMAT
 Return STRICT JSON only. No explanation, no markdown, no extra text.
@@ -134,11 +139,16 @@ def intent_router_node(state: LeadState) -> LeadState:
 
     last_agent_msg = state.get("last_agent_response", "")
 
+    intent_prompt = INTENT_SYSTEM_PROMPT.format(
+        last_agent_message=last_agent_msg,
+        last_agent_node=state.get("last_agent_node")
+    )
+    
     try:
 
         parsed = llm.invoke_json(
             messages= (
-                [{"role": "system", "content": INTENT_SYSTEM_PROMPT.format(last_agent_message=last_agent_msg)}]
+                [{"role": "system", "content": intent_prompt}]
                 + llm.get_recent_messages(state)
                 + [{"role": "user", "content": user_message}]
             )
