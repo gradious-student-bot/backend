@@ -236,6 +236,12 @@ Then generate the appropriate response.
 - Keep it brief and natural.
 - Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
 
+## STYLE RESTRICTIONS
+- Do not use em dashes or long dashes like "—" in the response.
+- Do not use hyphen-style transitions like "Thanks —" or "Hi —".
+- Use simple commas or full stops instead.
+- Do not reintroduce yourself after the call has already started.
+
 ## OUTPUT FORMAT
 Return STRICT JSON only.
 {{
@@ -295,6 +301,12 @@ Then generate the appropriate response.
   - Ask for a preferred callback time (1 sentence).
 - If UNCLEAR, treat as YES.
 - Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
+
+## STYLE RESTRICTIONS
+- Do not use em dashes or long dashes like "—" in the response.
+- Do not use hyphen-style transitions like "Thanks —" or "Hi —".
+- Use simple commas or full stops instead.
+- Do not reintroduce yourself after the call has already started.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
@@ -369,6 +381,12 @@ Then generate the appropriate response.
 - Do not say "Great to hear you're interested!".
 - Do not use "Absolutely!", "Certainly!", "Great question!", or "Definitely!".
 - Keep it under 3 sentences. Sound natural and conversational.
+
+## STYLE RESTRICTIONS
+- Do not use em dashes or long dashes like "—" in the response.
+- Do not use hyphen-style transitions like "Thanks —" or "Hi —".
+- Use simple commas or full stops instead.
+- Do not reintroduce yourself after the call has already started.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only.
