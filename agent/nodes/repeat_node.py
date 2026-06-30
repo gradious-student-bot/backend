@@ -3,6 +3,7 @@ import logging
 from openai import OpenAI
 from agent.state import LeadState
 from config import OPENAI_API_KEY
+from services.llm_service import llm
 
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -43,17 +44,13 @@ def repeat_node(state: LeadState) -> LeadState:
         return state
 
     try:
-        result = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0.6,
-            response_format={"type": "json_object"},
+        result = llm.invoke_json(
             messages=[{
                 "role": "system",
                 "content": REPEAT_SYSTEM_PROMPT.format(last_agent_response=last_response),
-            }],
+            }]
         )
-        parsed = json.loads(result.choices[0].message.content)
-        response = parsed.get("response", last_response)
+        response = result.get("response", last_response)
     except Exception as e:
         logger.error(f"[Repeat] LLM error: {e}")
         response = f"Sure! {last_response}"

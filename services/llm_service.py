@@ -24,6 +24,7 @@ class LLM_Client:
         try:
             resp = self.client.chat.completions.create(
                 model=self.model_name,
+                temperature=0.6,
                 messages=messages
             )
 
@@ -39,6 +40,7 @@ class LLM_Client:
         try:
             resp = self.client.chat.completions.create(
                 model=self.model_name,
+                temperature=0.4,
                 response_format={"type": "json_object"},
                 messages=messages,
             )

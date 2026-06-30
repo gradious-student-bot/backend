@@ -119,4 +119,4 @@ def build_graph() -> StateGraph:
     return graph.compile()
 
 
-agent_graph = build_graph()
+agent_graph: StateGraph = build_graph()

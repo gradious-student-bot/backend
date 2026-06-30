@@ -4,6 +4,7 @@ from openai import OpenAI
 from agent.state import LeadState
 from knowledge.context_builders import build_faq_context, resolve_courses_for_faq
 from config import OPENAI_API_KEY
+from services.llm_service import llm
 
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -206,8 +207,10 @@ def faq_node(state: LeadState) -> LeadState:
     # Detect if user is asking specifically about the platform
     query_lower = user_query.lower()
     include_lms_detail = any(kw in query_lower for kw in _LMS_KEYWORDS)
+
     if include_lms_detail:
         logger.info("[FAQ] LMS-specific query detected — including full LMS detail context")
+
     context = build_faq_context(course_keys, include_lms_detail=True)
 
     # Use pending_next_question_text if set, otherwise fall back to last_agent_response
@@ -224,34 +227,18 @@ def faq_node(state: LeadState) -> LeadState:
         pending_question=pending_question if pending_question else "None",
     )
 
-    # Build recent message history for context
-    msgs = state.get("messages", [])
-    history = msgs[:-1] if len(msgs) > 1 else []
-    recent = []
-    for m in history[-10:]:
-        if isinstance(m, HumanMessage):
-            recent.append({"role": "user", "content": m.content})
-        elif isinstance(m, LCAIMessage):
-            recent.append({"role": "assistant", "content": m.content})
-
-    messages_payload = (
-        [{"role": "system", "content": system_prompt}]
-        + recent
-        + [{"role": "user", "content": user_query}]
-    )
-
     try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0.6,
-            response_format={"type": "json_object"},
-            messages=messages_payload,
+        result = llm.invoke_json(
+            messages=(
+                [{"role": "system", "content": system_prompt}]
+                + llm.get_recent_messages(state)
+                + [{"role": "user", "content": user_query}]
+            )
         )
-        parsed = json.loads(response.choices[0].message.content)
-        answer = parsed.get("response", "").strip()
+        answer = result.get("response", "").strip()
 
         # If LLM signals human agent needed (fee negotiation, placement detail, fallback), set flag
-        if parsed.get("needs_human_agent"):
+        if result.get("needs_human_agent"):
             logger.info("[FAQ] Human agent handoff triggered")
             state["human_agent_requested"] = True
             state["next_node"] = "human_agent"

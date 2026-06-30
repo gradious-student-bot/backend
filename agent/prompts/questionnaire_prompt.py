@@ -63,7 +63,6 @@ Use the agent's last question to understand which field the user's reply refers 
 ## OUTPUT FORMAT
 Return STRICT JSON only. No explanation, no markdown.
 {{
-  "extracted": {{
     "course_interest": "<value or null>",
     "student_status": "<value or null>",
     "current_year": "<value or null>",
@@ -78,7 +77,6 @@ Return STRICT JSON only. No explanation, no markdown.
     "callback_requested": "<value or null>",
     "callback_time": "<value or null>",
     "std_course_change": "<true | false | null>"
-  }}
 }}"""
 
 # Prompt for generating the next question to ask the user in a natural, conversational style.

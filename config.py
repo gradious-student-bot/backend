@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # LLM Model config
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 OPENAI_THINK_MODEL = os.environ.get("OPENAI_THINK_MODEL", "gpt-5")
 OPENAI_FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", "gpt-5-mini")
 

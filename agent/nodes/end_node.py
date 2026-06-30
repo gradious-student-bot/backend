@@ -3,6 +3,7 @@ import logging
 from openai import OpenAI
 from agent.state import LeadState
 from config import OPENAI_API_KEY
+from services.llm_service import llm
 
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -61,17 +62,14 @@ def end_node(state: LeadState) -> LeadState:
         reason = "Student is ending the call politely."
 
     try:
-        result = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0.6,
-            response_format={"type": "json_object"},
+        result = llm.invoke_json(
             messages=[{
                 "role": "system",
                 "content": END_SYSTEM_PROMPT.format(reason=reason),
-            }],
+            }]
         )
-        parsed = json.loads(result.choices[0].message.content)
-        response = parsed.get("response", "Thanks for your time. Have a good day!")
+        
+        response = result.get("response", "Thanks for your time. Have a good day!")
     except Exception as e:
         logger.error(f"[End] LLM error: {e}")
         response = "Thanks for your time. Have a good day!"

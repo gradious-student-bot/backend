@@ -23,14 +23,16 @@ Identify the intent of the student's latest message based on the full conversati
     - Assistant will ask questions from a questionnaire for user details and also follow-up questions in response of a user query.
     - A questionnaire question is when assistant asks for user details like course interest/academic details etc.
     - A follow-up question is when assistant asks user if they'd like to know more about a course/information.
-    - Correctly differentiate which type of question assistant asked and return "answer" if user is answering to a questionnaire question.
+    - Correctly differentiate which type of question assistant (questionnaire or follow-up question) asked and return "answer" IF questionnaire question.
     - Only return "answer" when user answers a question from questionnaire.
 
 2. **query**:
     - Return "query" when user only asks a question/query about Gradious offerings, course details, coaching details.
     - Such queries includes asking details about factual information of institute, course, etc.
     - When user responds to a question assistant asked and also asks a query at a time, the intent is "answer_and_query".
-    - When assistant responds to a user query in previous turn and adds a follow-up question like if user wants to know more, then when user answers this question, set intent as "query".
+    - Assistant will ask a follow-up question like "Would you like to know more?" at end of any previous queries of user, these are follow-up questions.
+    - Determine correctly if user is acknowledging and answering to these questions and set intent as "query".
+    - When assistant responds to a user query in previous turn and adds a follow-up question like if user wants to know more about course etc, then if user answers this question, set intent as "query".
     Examples for "query" intent user utterances:
         - "What's the fee and duration of this?"
         - "Tell me about this course?"
@@ -55,27 +57,27 @@ Identify the intent of the student's latest message based on the full conversati
    - Such intent is when user isn't interested in talking to AI agent[You] and would like to speak with Human representative.
    Examples: "Talk to a real person", "Connect me to HR", "I want to speak to someone", "Can I talk to your team?", "Get me your advisor".
 
-6. **not_interested**
+6. **not_interested**:
    - Return "not_interested" if user doesn't want to continue the call or enroll into the course.
    - Such intent is when user is clearly disinterested in continuing the call/conversation, and would like to cut the call.
    Examples: "I'm not interested", "Don't call me again", "Remove my number", "I don't want this", "Please don't contact me".
 
-7. **rude**
+7. **rude**:
    - Return "rude" if the user uses hostile, abusive, or inappropriate language toward the assistant.
    - Such intent is when user is clearly angry and shows hostile behaviour towards assistant.
 
-8. **irrelevant**
+8. **irrelevant**:
    - Return "irrelevant" if the student's message is completely unrelated to Gradious, courses, education, or career — such as asking about weather, politics, sports, or other random topics.
 
-9. **confused**
+9. **confused**:
    - Return "confused" if the student is genuinely unsure or unclear about how to respond.
    Examples: "I don't know", "Not sure", "Maybe?", "I'm confused", "Can you explain?".
 
-10. **end_call**
+10. **end_call**:
     - Return "end_call" if the student is politely wrapping up the conversation.
     Examples: "Bye", "Thanks, goodbye", "I'll call back", "Talk later", "That's all"
 
-11. **small_talk**
+11. **small_talk**:
     - Return "small_talk" when user's utterance is generic, conversational, greeting, identification-related, purpose knowing, confused about the call.
     - Such intent is when user is:
         - Asking generic questions.
@@ -86,7 +88,7 @@ Identify the intent of the student's latest message based on the full conversati
         - Confusion about call or assistant response like Huh?, Sorry?, What?, I can't hear you.
         
 ## CRITICAL RULES
-- Correctly classify the intent based on conversation history, previous turns.
+- Correctly classify the intent based on conversation history and previous turns.
 
 ## OUTPUT FORMAT
 Return STRICT JSON only. No explanation, no markdown, no extra text.

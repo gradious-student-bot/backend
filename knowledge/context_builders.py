@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from openai import OpenAI
 from config import OPENAI_API_KEY
+from services.llm_service import llm
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +13,6 @@ logger.info(f"Loading knowledge base from {_KB_PATH}")
 with open(_KB_PATH, "r", encoding="utf-8") as f:
     kb = json.load(f)
 logger.info(f"Knowledge base loaded with {len(kb.get('courses', {}))} courses")
-
-_llm_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ─────────────────────────────────────────────
 # LLM-based Course Detection
@@ -85,20 +84,19 @@ def llm_detect_courses(user_query: str, student_year: int | None = None) -> list
         user_content += f"\nStudent year: {student_year}"
 
     try:
-        resp = _llm_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0,
-            response_format={"type": "json_object"},
+        result = llm.invoke_json(
             messages=[
                 {"role": "system", "content": _COURSE_DETECT_PROMPT},
                 {"role": "user",   "content": user_content},
-            ],
+            ]
         )
-        result = json.loads(resp.choices[0].message.content)
+
         keys = result.get("course_keys", [])
+
         # Validate keys exist in KB
         valid = [k for k in keys if k in kb["courses"]]
         logger.info(f"[LLM] Course detection result: {valid}")
+
         return valid
     except Exception as e:
         logger.warning(f"[LLM] Course detection failed ({e}), falling back to keyword detection")
@@ -112,19 +110,18 @@ def llm_detect_lms_query(user_query: str) -> bool:
     """
     logger.info(f"[LLM] Detecting LMS query intent for: {user_query[:80]!r}")
     try:
-        resp = _llm_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0,
-            response_format={"type": "json_object"},
+        result = llm.invoke_json(
             messages=[
                 {"role": "system", "content": _LMS_DETECT_PROMPT},
                 {"role": "user",   "content": user_query},
-            ],
+            ]
         )
-        result = json.loads(resp.choices[0].message.content)
+
         is_lms = bool(result.get("is_lms_query", False))
         logger.info(f"[LLM] LMS query detection: {is_lms}")
+
         return is_lms
+    
     except Exception as e:
         logger.warning(f"[LLM] LMS detection failed ({e}), falling back to keyword detection")
         return _keyword_detect_lms(user_query)
@@ -174,8 +171,10 @@ def get_eligible_course_keys(student_year: int | None) -> list[str]:
     """
     if student_year is None:
         return list(kb["courses"].keys())
+    
     if student_year in (1, 2, 3):
         return ["campus_fullstack", "campus_ai"]
+    
     return ["fullstack_batch", "ai_batch", "dsa_batch"]
 
 

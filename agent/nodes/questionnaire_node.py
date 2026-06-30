@@ -88,14 +88,23 @@ def _get_next_field(af: dict) -> str | None:
         "course_interest", "student_status", "current_year",
         "passout_year", "department", "training_mode", "class_type",
         "looking_for_job", "interested",
-        "join_date","onboarding_requested", "callback_requested", "callback_time",
+        "join_date", "onboarding_requested", "callback_requested",
+        "callback_time",
     ]
+
+    # Checking for each field in order
     for field in order:
+
+        # Field is already answered
         if field in af:
             continue
+
+        # Field is not answered & Field requires other fields
         if field in CONDITIONAL_FIELDS:
+
             if not CONDITIONAL_FIELDS[field](af):
                 continue  # condition not met — skip this field
+
         return field
     return None
 
@@ -187,7 +196,6 @@ def _set_response(state: LeadState, text: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def questionnaire_node(state: LeadState) -> LeadState:
-    from langchain_core.messages import AIMessage
 
     intent = state.get("next_node", "answer")
     user_text = state["messages"][-1].content if state["messages"] else ""
